@@ -77,6 +77,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         let reset = NSMenuItem(title: "Reset", action: #selector(resetTimestamp), keyEquivalent: "")
         reset.target = self
         menu.addItem(reset)
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
