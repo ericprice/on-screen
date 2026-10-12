@@ -39,6 +39,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private var customText: String? = UserDefaults.standard.string(forKey: "customText").map { String($0.prefix(customTextLimit)) }
     private var updatedAt = Date()
     private var reason = "launch"
+    private var colorPersistenceTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Prevent duplicate windows/menu items if the bundle is launched again.
@@ -136,6 +137,10 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         refreshTimestamp(reason: "launch/login")
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        persistColorChanges()
+    }
+
     private func registerAtLogin() {
         let service = SMAppService.mainApp
         let defaults = UserDefaults.standard
@@ -217,14 +222,14 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         }
         let artwork = TimestampArtwork.make(customText ?? timestamp,
                                             width: screen.frame.width * 0.75,
-                                            height: screen.frame.height * 0.50,
-                                            color: textColor)
+                                            height: screen.frame.height * 0.50)
         // Even point dimensions avoid asymmetric frame rounding by NSWindow.
         // The glyph bounds fit within 75% of display width and 50% of height.
         let size = NSSize(width: ceil((artwork.inkBounds.width + 4) / 2) * 2,
                           height: ceil((artwork.inkBounds.height + 4) / 2) * 2)
         let frame = NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.midY - size.height / 2, width: size.width, height: size.height)
         window.setFrame(frame, display: false)
+        view.textColor = textColor
         view.artwork = artwork
         window.orderFrontRegardless()
         writeDiagnostics(screen: screen, artwork: artwork)
@@ -350,9 +355,9 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         for item in sender.menu?.items ?? [] where item.action == #selector(selectTextColor(_:)) {
             item.state = mode.rawValue == item.tag ? .on : .off
         }
-        positionArtwork()
-        let panel = NSColorPanel.shared
+        updateArtworkColor()
         if mode == .custom {
+            let panel = NSColorPanel.shared
             panel.title = "Custom Text Color"
             panel.showsAlpha = false
             panel.isContinuous = true
@@ -361,16 +366,39 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             panel.setAction(#selector(customColorChanged(_:)))
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
-        } else {
-            panel.orderOut(nil)
+        } else if NSColorPanel.sharedColorPanelExists {
+            NSColorPanel.shared.orderOut(nil)
         }
     }
     @objc private func customColorChanged(_ sender: NSColorPanel) {
         guard textColorMode == .custom,
               let color = sender.color.usingColorSpace(.sRGB) else { return }
         customColor = color.withAlphaComponent(1)
-        UserDefaults.standard.set([color.redComponent, color.greenComponent, color.blueComponent], forKey: "customColor")
-        positionArtwork()
+        updateArtworkColor()
+    }
+
+    private func updateArtworkColor() {
+        (window?.contentView as? TimestampView)?.textColor = textColor
+        // Keep live feedback immediate, but save only once a drag has paused.
+        colorPersistenceTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.25, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.persistColorChanges() }
+        }
+        colorPersistenceTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func persistColorChanges() {
+        guard let timer = colorPersistenceTimer else { return }
+        timer.invalidate()
+        colorPersistenceTimer = nil
+        if let color = customColor.usingColorSpace(.sRGB) {
+            UserDefaults.standard.set([color.redComponent, color.greenComponent, color.blueComponent], forKey: "customColor")
+        }
+        if let screen = window?.screen,
+           let artwork = (window?.contentView as? TimestampView)?.artwork {
+            writeDiagnostics(screen: screen, artwork: artwork)
+        }
     }
     @objc private func displaysChanged() { positionArtwork() }
     @objc private func quitApp() { NSApp.terminate(nil) }

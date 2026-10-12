@@ -5,12 +5,12 @@ struct TimestampArtwork {
     let line: CTLine
     let inkBounds: CGRect
 
-    static func make(_ timestamp: String, width: CGFloat, height: CGFloat, color: NSColor = .white) -> TimestampArtwork {
+    static func make(_ timestamp: String, width: CGFloat, height: CGFloat) -> TimestampArtwork {
         func line(at size: CGFloat) -> CTLine {
             let font = CTFontCreateWithName("ISO8601Kawara-Regular" as CFString, size, nil)
             let result = NSAttributedString(string: timestamp, attributes: [
                 .font: font,
-                .foregroundColor: color,
+                NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
                 .kern: -0.052 * size
             ])
             return CTLineCreateWithAttributedString(result)
@@ -27,6 +27,9 @@ struct TimestampArtwork {
 }
 
 final class TimestampView: NSView {
+    var textColor: NSColor = .white {
+        didSet { if textColor != oldValue { needsDisplay = true } }
+    }
     var artwork: TimestampArtwork? {
         didSet { needsDisplay = true }
     }
@@ -40,6 +43,7 @@ final class TimestampView: NSView {
         context.setFillColor(NSColor.clear.cgColor)
         context.fill(dirtyRect)
         context.setBlendMode(.normal)
+        context.setFillColor(textColor.cgColor)
         context.textMatrix = .identity
         context.textPosition = CGPoint(
             x: (bounds.width - artwork.inkBounds.width) / 2 - artwork.inkBounds.minX,
