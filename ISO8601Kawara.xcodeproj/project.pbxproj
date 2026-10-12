@@ -1,0 +1,34 @@
+// !$*UTF8*$!
+{archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+000000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Main.swift; sourceTree = SOURCE_ROOT;};
+000000000000000000000002 = {isa = PBXBuildFile; fileRef = 000000000000000000000001;};
+000000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DesktopAppDelegate.swift; sourceTree = SOURCE_ROOT;};
+000000000000000000000004 = {isa = PBXBuildFile; fileRef = 000000000000000000000003;};
+000000000000000000000005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TimestampView.swift; sourceTree = SOURCE_ROOT;};
+000000000000000000000006 = {isa = PBXBuildFile; fileRef = 000000000000000000000005;};
+000000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = file; path = Resources/ISO8601Kawara-Regular.otf; sourceTree = SOURCE_ROOT;};
+000000000000000000000008 = {isa = PBXBuildFile; fileRef = 000000000000000000000007;};
+000000000000000000000016 = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = Resources/kawara-menu-icon.pdf; sourceTree = SOURCE_ROOT;};
+000000000000000000000017 = {isa = PBXBuildFile; fileRef = 000000000000000000000016;};
+000000000000000000000018 = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer; path = "kawara-app-icon.icon"; sourceTree = SOURCE_ROOT;};
+000000000000000000000019 = {isa = PBXBuildFile; fileRef = 000000000000000000000018;};
+000000000000000000000020 = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT;};
+000000000000000000000021 = {isa = PBXBuildFile; fileRef = 000000000000000000000020;};
+000000000000000000000022 = {isa = PBXFileReference; lastKnownFileType = text; path = "THIRD-PARTY-NOTICES.md"; sourceTree = SOURCE_ROOT;};
+000000000000000000000023 = {isa = PBXBuildFile; fileRef = 000000000000000000000022;};
+000000000000000000000024 = {isa = PBXFileReference; lastKnownFileType = text; path = "Licenses/CC-BY-SA-4.0.txt"; sourceTree = SOURCE_ROOT;};
+000000000000000000000025 = {isa = PBXBuildFile; fileRef = 000000000000000000000024;};
+000000000000000000000009 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = "ISO 8601 Kawara.app"; sourceTree = BUILT_PRODUCTS_DIR;};
+00000000000000000000000A = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000002,000000000000000000000004,000000000000000000000006,); runOnlyForDeploymentPostprocessing = 0;};
+00000000000000000000000B = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000008,000000000000000000000017,000000000000000000000019,000000000000000000000021,000000000000000000000023,000000000000000000000025,); runOnlyForDeploymentPostprocessing = 0;};
+00000000000000000000000C = {isa = XCBuildConfiguration; name = Debug; buildSettings = {SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 15.0; SWIFT_VERSION = 6.0; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; SWIFT_OPTIMIZATION_LEVEL = "-O";};};
+00000000000000000000000D = {isa = XCBuildConfiguration; name = Release; buildSettings = {SDKROOT = macosx; MACOSX_DEPLOYMENT_TARGET = 15.0; SWIFT_VERSION = 6.0; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; SWIFT_OPTIMIZATION_LEVEL = "-O";};};
+00000000000000000000000E = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000000C,00000000000000000000000D,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+00000000000000000000000F = {isa = XCBuildConfiguration; name = Debug; buildSettings = {PRODUCT_NAME = "ISO 8601 Kawara"; EXECUTABLE_NAME = ISO8601Kawara; PRODUCT_BUNDLE_IDENTIFIER = "dev.ericprice.iso8601-on-kawara"; INFOPLIST_FILE = App/Info.plist; GENERATE_INFOPLIST_FILE = NO; ASSETCATALOG_COMPILER_APPICON_NAME = "kawara-app-icon";};};
+000000000000000000000010 = {isa = XCBuildConfiguration; name = Release; buildSettings = {PRODUCT_NAME = "ISO 8601 Kawara"; EXECUTABLE_NAME = ISO8601Kawara; PRODUCT_BUNDLE_IDENTIFIER = "dev.ericprice.iso8601-on-kawara"; INFOPLIST_FILE = App/Info.plist; GENERATE_INFOPLIST_FILE = NO; ASSETCATALOG_COMPILER_APPICON_NAME = "kawara-app-icon";};};
+000000000000000000000011 = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000000F,000000000000000000000010,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+000000000000000000000012 = {isa = PBXNativeTarget; buildConfigurationList = 000000000000000000000011; buildPhases = (00000000000000000000000A,00000000000000000000000B,); buildRules = (); dependencies = (); name = ISO8601Kawara; productName = "ISO 8601 Kawara"; productReference = 000000000000000000000009; productType = "com.apple.product-type.application";};
+000000000000000000000013 = {isa = PBXGroup; children = (000000000000000000000009,); name = Products; sourceTree = "<group>";};
+000000000000000000000014 = {isa = PBXGroup; children = (000000000000000000000001,000000000000000000000003,000000000000000000000005,000000000000000000000007,000000000000000000000016,000000000000000000000018,000000000000000000000020,000000000000000000000022,000000000000000000000024,000000000000000000000013,); sourceTree = "<group>";};
+000000000000000000000015 = {isa = PBXProject; attributes = {LastUpgradeCheck = 2700;}; buildConfigurationList = 00000000000000000000000E; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en,Base,); mainGroup = 000000000000000000000014; productRefGroup = 000000000000000000000013; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000012,);};
+}; rootObject = 000000000000000000000015;}
