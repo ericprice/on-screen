@@ -3,21 +3,21 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>ISO 8601 Kawara</string>
+	<string>ISO 8601 Today</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleName</key>
-	<string>ISO 8601 Kawara</string>
+	<string>ISO 8601 Today</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.3</string>
 	<key>CFBundleVersion</key>
-	<string>5</string>
+	<string>7</string>
 	<key>SUFeedURL</key>
-	<string>https://github.com/ericprice/iso-8601-kawara/releases/latest/download/appcast.xml</string>
+	<string>https://github.com/ericprice/iso-8601-today/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>wJPcOJv8Gv3LAp0W4nmz9SLPPoY32WoeueBtqmaj70M=</string>
 	<key>SUVerifyUpdateBeforeExtraction</key>

@@ -1,5 +1,5 @@
 version = 1
-name = "iso-8601-kawara"
+name = "iso-8601-today"
 
 [setup]
 script = ""

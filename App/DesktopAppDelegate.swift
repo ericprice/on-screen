@@ -5,7 +5,7 @@ import OSLog
 import Sparkle
 
 @MainActor
-final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
+final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate, NSMenuDelegate {
     private enum TextColorMode: Int { case white, black, custom }
     // Start after duplicate-instance detection; Sparkle owns persisted update preferences.
     private let updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
@@ -68,7 +68,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             }
         }
         let window = DesktopWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
-        window.title = "ISO 8601 Kawara"
+        window.title = "ISO 8601 Today"
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
@@ -85,18 +85,22 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         updaterController.startUpdater()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let iconURL = Bundle.main.url(forResource: "kawara-menu-icon", withExtension: "pdf"),
+        if let iconURL = Bundle.main.url(forResource: "today-menu-icon", withExtension: "pdf"),
            let icon = NSImage(contentsOf: iconURL) {
             icon.size = NSSize(width: 18, height: 18)
             icon.isTemplate = true
-            icon.accessibilityDescription = "ISO 8601 Kawara"
+            icon.accessibilityDescription = "ISO 8601 Today"
             item.button?.image = icon
         }
         let menu = NSMenu()
-        let about = NSMenuItem(title: "About ISO 8601 Kawara", action: #selector(showAbout), keyEquivalent: "")
+        menu.delegate = self
+        let about = NSMenuItem(title: "About ISO 8601 Today", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
         menu.addItem(.separator())
+        let openAtLogin = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin(_:)), keyEquivalent: "")
+        openAtLogin.target = self
+        menu.addItem(openAtLogin)
         let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
         checkForUpdates.target = updaterController
         menu.addItem(checkForUpdates)
@@ -120,7 +124,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             menu.addItem(color)
         }
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit ISO 8601 Kawara", action: #selector(quitApp), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit ISO 8601 Today", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         item.menu = menu
@@ -152,6 +156,44 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             }
         }
         logger.info("Login item status: \(service.status.rawValue)")
+        updateLoginItemMenu()
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        updateLoginItemMenu()
+    }
+
+    private func updateLoginItemMenu() {
+        statusItem?.menu?.items.first(where: { $0.action == #selector(toggleOpenAtLogin(_:)) })?.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
+
+    @objc private func toggleOpenAtLogin(_ sender: NSMenuItem) {
+        let service = SMAppService.mainApp
+        defer { updateLoginItemMenu() }
+        do {
+            switch service.status {
+            case .enabled:
+                try service.unregister()
+            case .requiresApproval:
+                // macOS requires the user to grant or restore consent in Settings.
+                SMAppService.openSystemSettingsLoginItems()
+                return
+            default:
+                try service.register()
+                UserDefaults.standard.set(Bundle.main.bundlePath, forKey: "registeredBundlePath")
+            }
+            UserDefaults.standard.set(true, forKey: "loginRegistrationAttempted")
+            if service.status == .requiresApproval {
+                SMAppService.openSystemSettingsLoginItems()
+            }
+        } catch {
+            logger.error("Could not change login item: \(error.localizedDescription, privacy: .public)")
+            let alert = NSAlert()
+            alert.messageText = "Could Not Change Open at Login"
+            alert.informativeText = error.localizedDescription
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
     }
 
     private func refreshTimestamp(reason: String) {

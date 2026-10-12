@@ -1,4 +1,4 @@
-# ISO 8601 Kawara
+# ISO 8601 Today
 
 MIT License
 
@@ -28,13 +28,5 @@ The MIT license above covers the application code. The bundled font is licensed
 separately under [Creative Commons Attribution-ShareAlike 4.0 International
 (CC BY-SA 4.0)](Licenses/CC-BY-SA-4.0.txt).
 
-ISO 8601 Kawara is adapted from [On Kawara](https://github.com/y-a-v-a/aan_arwok_)
-by Vincent Bruijn, copyright © 2018–2021
-Vincent Bruijn. Studio Eric Price LLC modified glyphs, including punctuation.
-Modifications copyright © 2026
-Studio Eric Price LLC
-
-The adapted font remains under CC BY-SA 4.0. See
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the full attribution and
-modification notice, and the [font repository](https://github.com/ericprice/iso-8601-kawara-font)
-for the OTF and editable Glyphs source.
+See [third-party notices](THIRD-PARTY-NOTICES.md) for font attribution,
+modification details, and editable sources.
