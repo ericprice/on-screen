@@ -27,7 +27,8 @@ ln -s /Applications "$STAGING_DIR/Applications"
   printf '\n\nFULL FONT LICENSE — CC BY-SA 4.0\n\n'
   cat "$ROOT_DIR/Licenses/CC-BY-SA-4.0.txt"
 } > "$STAGING_DIR/Licenses.txt"
-DMG="$ROOT_DIR/dist/ISO 8601 Kawara-1.0.dmg"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT_APP/Contents/Info.plist")"
+DMG="$ROOT_DIR/dist/ISO-8601-Kawara-$VERSION.dmg"
 if [[ -f "$DMG" ]]; then
   PREVIOUS_DIR="$(mktemp -d "$ROOT_DIR/build/previous-dmg.XXXXXX")"
   mv "$DMG" "$PREVIOUS_DIR/previous.dmg"

@@ -5,7 +5,7 @@ struct TimestampArtwork {
     let line: CTLine
     let inkBounds: CGRect
 
-    static func make(_ timestamp: String, width: CGFloat) -> TimestampArtwork {
+    static func make(_ timestamp: String, width: CGFloat, height: CGFloat) -> TimestampArtwork {
         func line(at size: CGFloat) -> CTLine {
             let font = CTFontCreateWithName("ISO8601Kawara-Regular" as CFString, size, nil)
             let result = NSAttributedString(string: timestamp, attributes: [
@@ -17,7 +17,11 @@ struct TimestampArtwork {
         }
         let reference = line(at: 100)
         let referenceBounds = CTLineGetBoundsWithOptions(reference, .useGlyphPathBounds)
-        let fitted = line(at: 100 * width / referenceBounds.width)
+        // Invisible input (for example, zero-width characters) has no ink to fit.
+        let widthScale = referenceBounds.width > 0 ? width / referenceBounds.width : .infinity
+        let heightScale = referenceBounds.height > 0 ? height / referenceBounds.height : .infinity
+        let scale = min(widthScale, heightScale)
+        let fitted = line(at: scale.isFinite ? 100 * scale : 100)
         return TimestampArtwork(line: fitted, inkBounds: CTLineGetBoundsWithOptions(fitted, .useGlyphPathBounds))
     }
 }

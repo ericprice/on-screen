@@ -4,11 +4,15 @@ import ServiceManagement
 import OSLog
 
 @MainActor
-final class DesktopAppDelegate: NSObject, NSApplicationDelegate {
+final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
+    private static let customTextLimit = 24
+    // Resolve after the bundled font has been registered, without font fallback.
+    private lazy var supportedCharacters = CTFontCopyCharacterSet(CTFontCreateWithName("ISO8601Kawara-Regular" as CFString, 100, nil))
     private let logger = Logger(subsystem: "dev.ericprice.iso8601-on-kawara", category: "desktop")
     private var window: DesktopWindow?
     private var statusItem: NSStatusItem?
     private var timestamp = ""
+    private var customText: String? = UserDefaults.standard.string(forKey: "customText").map { String($0.prefix(customTextLimit)) }
     private var updatedAt = Date()
     private var reason = "launch"
 
@@ -29,6 +33,15 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate {
             logger.error("Could not register the bundled font")
             NSApp.terminate(nil)
             return
+        }
+        if let customText {
+            let filtered = filteredCustomText(customText)
+            if filtered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                clearCustomText()
+            } else {
+                self.customText = filtered
+                UserDefaults.standard.set(filtered, forKey: "customText")
+            }
         }
         let window = DesktopWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
         window.title = "ISO 8601 Kawara"
@@ -58,6 +71,9 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate {
         about.target = self
         menu.addItem(about)
         menu.addItem(.separator())
+        let custom = NSMenuItem(title: "Custom Text…", action: #selector(showCustomText), keyEquivalent: "")
+        custom.target = self
+        menu.addItem(custom)
         let reset = NSMenuItem(title: "Reset", action: #selector(resetTimestamp), keyEquivalent: "")
         reset.target = self
         menu.addItem(reset)
@@ -113,9 +129,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate {
             window.orderOut(nil)
             return
         }
-        let artwork = TimestampArtwork.make(timestamp, width: screen.frame.width * 0.75)
+        let artwork = TimestampArtwork.make(customText ?? timestamp,
+                                            width: screen.frame.width * 0.75,
+                                            height: screen.frame.height * 0.50)
         // Even point dimensions avoid asymmetric frame rounding by NSWindow.
-        // The glyph bounds remain at exactly 75%; only transparent padding grows.
+        // The glyph bounds fit within 75% of display width and 50% of height.
         let size = NSSize(width: ceil((artwork.inkBounds.width + 4) / 2) * 2,
                           height: ceil((artwork.inkBounds.height + 4) / 2) * 2)
         let frame = NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.midY - size.height / 2, width: size.width, height: size.height)
@@ -158,13 +176,85 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationVersion: "1.0",
+            .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
             .version: "",
             .credits: NSAttributedString(string: "")
         ])
     }
 
-    @objc private func resetTimestamp() { refreshTimestamp(reason: "reset") }
+    @objc private func showCustomText() {
+        let alert = NSAlert()
+        alert.messageText = "Enter Custom Text"
+        alert.informativeText = "24 character maximum. Leave blank to show the timestamp."
+        alert.addButton(withTitle: "Set Text")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: customText ?? "")
+        field.usesSingleLineMode = true
+        field.frame.size = NSSize(width: 228, height: field.intrinsicContentSize.height)
+        field.lineBreakMode = .byClipping
+        field.cell?.isScrollable = true
+        field.delegate = self
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            clearCustomText()
+            refreshTimestamp(reason: "custom-text-cleared")
+        } else {
+            customText = field.stringValue
+            UserDefaults.standard.set(customText, forKey: "customText")
+            positionArtwork()
+        }
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField else { return }
+        let original = field.stringValue
+        let filtered = filteredCustomText(original)
+        guard filtered != original else { return }
+        let editor = field.currentEditor()
+        let selection = editor?.selectedRange
+        field.stringValue = filtered
+        if let selection {
+            let length = field.stringValue.utf16.count
+            let prefixRange = Range(NSRange(location: 0, length: selection.location), in: original)
+            let location = prefixRange.map { filteredCustomText(String(original[$0])).utf16.count } ?? length
+            editor?.selectedRange = NSRange(location: location, length: min(selection.length, length - location))
+        }
+    }
+
+    private func filteredCustomText(_ text: String) -> String {
+        let supported = text.filter { character in
+            let scalars = character.unicodeScalars
+            let inFont = scalars.allSatisfy {
+                !CharacterSet.controlCharacters.contains($0) &&
+                CFCharacterSetIsLongCharacterMember(supportedCharacters, $0.value)
+            }
+            // ASCII digits also have the emoji property; only keycap sequences
+            // should use it to qualify as emoji. Keep the entire sequence intact.
+            let hasEmoji = scalars.contains {
+                ($0.properties.isEmoji && $0.value > 0x7F) || $0.value == 0x20E3
+            }
+            let isEmoji = hasEmoji && scalars.allSatisfy {
+                $0.properties.isEmoji || $0.value == 0x200D ||
+                $0.value == 0xFE0E || $0.value == 0xFE0F ||
+                $0.value == 0x20E3 || (0xE0020...0xE007F).contains($0.value)
+            }
+            return inFont || isEmoji
+        }
+        return String(supported.prefix(Self.customTextLimit))
+    }
+
+    private func clearCustomText() {
+        customText = nil
+        UserDefaults.standard.removeObject(forKey: "customText")
+    }
+
+    @objc private func resetTimestamp() {
+        clearCustomText()
+        refreshTimestamp(reason: "reset")
+    }
     @objc private func displaysChanged() { positionArtwork() }
     @objc private func quitApp() { NSApp.terminate(nil) }
 }
