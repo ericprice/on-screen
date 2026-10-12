@@ -78,7 +78,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         reset.target = self
         menu.addItem(reset)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit ISO 8601 Kawara", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         item.menu = menu
