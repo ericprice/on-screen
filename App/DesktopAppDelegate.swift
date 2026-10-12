@@ -185,7 +185,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     @objc private func showCustomText() {
         let alert = NSAlert()
         alert.messageText = "Enter Custom Text"
-        alert.informativeText = "24 character maximum. Leave blank to show the timestamp."
+        alert.informativeText = "24 characters maximum. Leave blank to show the timestamp."
         alert.addButton(withTitle: "Set Text")
         alert.addButton(withTitle: "Cancel")
         let field = NSTextField(string: customText ?? "")
