@@ -13,27 +13,33 @@ if [[ "$MODE" == "--build-only" ]]; then exit 0; fi
 
 APP_BUNDLE="$ROOT_DIR/dist/On Screen.app"
 SYSTEM_BUNDLE="/Applications/On Screen.app"
+BUILT_BUNDLE="$ROOT_DIR/build/App/Release/On Screen.app"
+BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUILT_BUNDLE/Contents/Info.plist")
 # Leave the running app and installed bundles intact until a build succeeds.
-pkill -x "On Screen" >/dev/null 2>&1 || true
-pkill -x ISO8601Today >/dev/null 2>&1 || true
-pkill -x ISO8601Kawara >/dev/null 2>&1 || true
-pkill -x OnKawara >/dev/null 2>&1 || true
 mkdir -p "$ROOT_DIR/dist"
-for DEST in "$ROOT_DIR/dist/ISO 8601 On Kawara.app" "$ROOT_DIR/dist/ISO 8601 Kawara.app" "$ROOT_DIR/dist/ISO 8601 Today.app" "/Applications/ISO 8601 On Kawara.app" "/Applications/ISO 8601 Kawara.app" "/Applications/ISO 8601 Today.app" "$APP_BUNDLE" "$SYSTEM_BUNDLE"; do
+for DEST in "$APP_BUNDLE" "$SYSTEM_BUNDLE"; do
   if [[ -d "$DEST" ]]; then
     EXISTING_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DEST/Contents/Info.plist")
-    [[ "$EXISTING_ID" == "dev.ericprice.iso8601-on-kawara" ]] || { echo "Refusing to replace unrelated app: $DEST" >&2; exit 1; }
-    BACKUP_DIR="$(mktemp -d "$ROOT_DIR/build/replaced.XXXXXX")"
-    mv "$DEST" "$BACKUP_DIR/previous-app.retired"
+    [[ "$EXISTING_ID" == "$BUNDLE_ID" ]] || { echo "Refusing to replace unrelated app: $DEST" >&2; exit 1; }
   fi
 done
+# Identify previous installations by their stable identity, regardless of name.
+for DEST in "$ROOT_DIR/dist/"*.app /Applications/*.app "$HOME/Applications/"*.app; do
+  [[ -f "$DEST/Contents/Info.plist" ]] || continue
+  EXISTING_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DEST/Contents/Info.plist" 2>/dev/null) || continue
+  [[ "$EXISTING_ID" == "$BUNDLE_ID" ]] || continue
+  EXISTING_EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$DEST/Contents/Info.plist")
+  pkill -x "$EXISTING_EXECUTABLE" >/dev/null 2>&1 || true
+  BACKUP_DIR="$(mktemp -d "$ROOT_DIR/build/replaced.XXXXXX")"
+  mv "$DEST" "$BACKUP_DIR/previous-app.retired"
+done
 for DEST in "$APP_BUNDLE" "$SYSTEM_BUNDLE"; do
-  ditto "$ROOT_DIR/build/App/Release/On Screen.app" "$DEST"
+  ditto "$BUILT_BUNDLE" "$DEST"
   codesign --verify --deep --strict "$DEST"
 done
 /usr/bin/open "$SYSTEM_BUNDLE"
 case "$MODE" in
   --verify) sleep 2; pgrep -x "On Screen" ;;
-  --logs) /usr/bin/log stream --info --style compact --predicate 'subsystem == "dev.ericprice.iso8601-on-kawara"' ;;
+  --logs) /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\"" ;;
   run) ;;
 esac
