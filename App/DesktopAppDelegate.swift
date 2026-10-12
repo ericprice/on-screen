@@ -104,6 +104,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         let custom = NSMenuItem(title: "Custom Text…", action: #selector(showCustomText), keyEquivalent: "t")
         custom.keyEquivalentModifierMask = .command
         custom.target = self
+        custom.state = customText == nil ? .off : .on
         menu.addItem(custom)
         let reset = NSMenuItem(title: "Reset to Current Timestamp", action: #selector(resetTimestamp), keyEquivalent: "r")
         reset.keyEquivalentModifierMask = .command
@@ -163,6 +164,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     private func positionArtwork() {
+        statusItem?.menu?.items.first(where: { $0.action == #selector(showCustomText) })?.state = customText == nil ? .off : .on
         guard let window, let view = window.contentView as? TimestampView else { return }
         let primaryID = CGMainDisplayID()
         guard let screen = NSScreen.screens.first(where: {
@@ -229,7 +231,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     @objc private func showCustomText() {
         let alert = NSAlert()
         alert.messageText = "Enter Custom Text"
-        alert.informativeText = "24 characters maximum. Leave blank to show the timestamp."
+        alert.informativeText = "24 characters maximum"
         alert.addButton(withTitle: "Set Text")
         alert.addButton(withTitle: "Cancel")
         let field = NSTextField(string: customText ?? "")
