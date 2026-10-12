@@ -12,17 +12,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private static let customTextLimit = 24
     // Resolve after the bundled font has been registered, without font fallback.
     private lazy var supportedCharacters = CTFontCopyCharacterSet(CTFontCreateWithName("ISO8601Kawara-Regular" as CFString, 100, nil))
-    private let logger = Logger(subsystem: "dev.ericprice.iso8601-on-kawara", category: "desktop")
+    private let logger = Logger(subsystem: "info.ericprice.on-screen", category: "desktop")
     private var window: DesktopWindow?
     private var statusItem: NSStatusItem?
     private var timestamp = ""
-    private var textColorMode: TextColorMode = {
-        let defaults = UserDefaults.standard
-        if defaults.object(forKey: "textColorMode") != nil {
-            return TextColorMode(rawValue: defaults.integer(forKey: "textColorMode")) ?? .white
-        }
-        return defaults.bool(forKey: "blackText") ? .black : .white
-    }()
+    private var textColorMode = TextColorMode(rawValue: UserDefaults.standard.integer(forKey: "textColorMode")) ?? .white
     private var customColor: NSColor = {
         guard let components = UserDefaults.standard.array(forKey: "customColor") as? [Double],
               components.count == 3,
@@ -144,18 +138,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private func registerAtLogin() {
         let service = SMAppService.mainApp
         let defaults = UserDefaults.standard
-        let bundlePath = Bundle.main.bundlePath
-        let renamedEnabledApp = service.status == .enabled && defaults.string(forKey: "registeredBundlePath") != bundlePath
         // Respect a later user decision to disable the item in System Settings.
-        if !defaults.bool(forKey: "loginRegistrationAttempted") || renamedEnabledApp {
+        if !defaults.bool(forKey: "loginRegistrationAttempted") {
             do {
-                if renamedEnabledApp {
-                    try service.unregister()
-                    defaults.set(false, forKey: "loginRegistrationAttempted")
-                }
                 try service.register()
                 defaults.set(true, forKey: "loginRegistrationAttempted")
-                defaults.set(bundlePath, forKey: "registeredBundlePath")
             } catch {
                 logger.error("Login registration failed: \(error.localizedDescription, privacy: .public)")
             }
@@ -185,7 +172,6 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
                 return
             default:
                 try service.register()
-                UserDefaults.standard.set(Bundle.main.bundlePath, forKey: "registeredBundlePath")
             }
             UserDefaults.standard.set(true, forKey: "loginRegistrationAttempted")
             if service.status == .requiresApproval {

@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Use tools from Sparkle 2.10.0's official distribution (or Xcode's resolved package).
 SPARKLE_BIN="${SPARKLE_BIN:?Set SPARKLE_BIN to the directory containing generate_appcast and generate_keys}"
-ACCOUNT="${SPARKLE_KEY_ACCOUNT:-iso-8601-kawara}"
+ACCOUNT="${SPARKLE_KEY_ACCOUNT:-info.ericprice.on-screen}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/App/Info.plist")"
 TAG="v$VERSION"
 REPOSITORY="ericprice/on-screen"
