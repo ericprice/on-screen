@@ -9,6 +9,8 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private enum TextColorMode: Int { case white, black, custom }
     // Start after duplicate-instance detection; Sparkle owns persisted update preferences.
     private let updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+    private let analytics = AppAnalytics()
+    private var updatePreferenceObservations: [NSKeyValueObservation] = []
     private static let customTextLimit = 24
     // Resolve after the bundled font has been registered, without font fallback.
     private lazy var supportedCharacters = CTFontCopyCharacterSet(CTFontCreateWithName("ISO8601Kawara-Regular" as CFString, 100, nil))
@@ -34,6 +36,9 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private var updatedAt = Date()
     private var reason = "launch"
     private var colorPersistenceTimer: Timer?
+    private var pendingColorAnalytics = false
+    private var lastReportedColor: NSColor?
+    private var lastReportedColorMode: TextColorMode?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Prevent duplicate windows/menu items if the bundle is launched again.
@@ -129,6 +134,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         registerAtLogin()
         refreshTimestamp(reason: "launch/login")
+        lastReportedColor = textColor
+        lastReportedColorMode = textColorMode
+        analytics.start()
+        analytics.recordLaunch(preferences: analyticsPreferences)
+        observeUpdatePreferences()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -153,6 +163,40 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     func menuWillOpen(_ menu: NSMenu) {
         updateLoginItemMenu()
+        analytics.recordPreferencesChanged(analyticsPreferences)
+    }
+
+    private var analyticsPreferences: AppAnalytics.Preferences {
+        let loginStatus: AppAnalytics.LoginStatus
+        switch SMAppService.mainApp.status {
+        case .enabled: loginStatus = .enabled
+        case .notRegistered: loginStatus = .disabled
+        case .requiresApproval: loginStatus = .requiresApproval
+        case .notFound: loginStatus = .notFound
+        @unknown default: loginStatus = .unknown
+        }
+        let updater = updaterController.updater
+        return .init(loginStatus: loginStatus,
+                     automaticUpdateChecks: updater.automaticallyChecksForUpdates,
+                     automaticUpdates: updater.automaticallyDownloadsUpdates)
+    }
+
+    private func observeUpdatePreferences() {
+        let updater = updaterController.updater
+        updatePreferenceObservations = [
+            updater.observe(\.automaticallyChecksForUpdates, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.analytics.recordPreferencesChanged(self.analyticsPreferences)
+                }
+            },
+            updater.observe(\.automaticallyDownloadsUpdates, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.analytics.recordPreferencesChanged(self.analyticsPreferences)
+                }
+            }
+        ]
     }
 
     private func updateLoginItemMenu() {
@@ -161,7 +205,10 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     @objc private func toggleOpenAtLogin(_ sender: NSMenuItem) {
         let service = SMAppService.mainApp
-        defer { updateLoginItemMenu() }
+        defer {
+            updateLoginItemMenu()
+            analytics.recordPreferencesChanged(analyticsPreferences)
+        }
         do {
             switch service.status {
             case .enabled:
@@ -277,6 +324,8 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         alert.window.initialFirstResponder = field
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let previousText = customText
+        let previousTimestamp = timestamp
         if field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             clearCustomText()
             refreshTimestamp(reason: "custom-text-cleared")
@@ -284,6 +333,9 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             customText = field.stringValue
             UserDefaults.standard.set(customText, forKey: "customText")
             positionArtwork()
+        }
+        if customText != previousText || (customText == nil && timestamp != previousTimestamp) {
+            analytics.recordTextChanged(isCustom: customText != nil)
         }
     }
 
@@ -331,8 +383,13 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     @objc private func resetTimestamp() {
+        let previousText = customText
+        let previousTimestamp = timestamp
         clearCustomText()
         refreshTimestamp(reason: "reset")
+        if previousText != nil || timestamp != previousTimestamp {
+            analytics.recordTextChanged(isCustom: false)
+        }
     }
     @objc private func selectTextColor(_ sender: NSMenuItem) {
         guard let mode = TextColorMode(rawValue: sender.tag) else { return }
@@ -341,6 +398,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         for item in sender.menu?.items ?? [] where item.action == #selector(selectTextColor(_:)) {
             item.state = mode.rawValue == item.tag ? .on : .off
         }
+        pendingColorAnalytics = true
         updateArtworkColor()
         if mode == .custom {
             let panel = NSColorPanel.shared
@@ -360,6 +418,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         guard textColorMode == .custom,
               let color = sender.color.usingColorSpace(.sRGB) else { return }
         customColor = color.withAlphaComponent(1)
+        pendingColorAnalytics = true
         updateArtworkColor()
     }
 
@@ -378,6 +437,20 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         guard let timer = colorPersistenceTimer else { return }
         timer.invalidate()
         colorPersistenceTimer = nil
+        if pendingColorAnalytics {
+            pendingColorAnalytics = false
+            if textColorMode != lastReportedColorMode || textColor != lastReportedColor {
+                let mode: AppAnalytics.ColorMode
+                switch textColorMode {
+                case .white: mode = .white
+                case .black: mode = .black
+                case .custom: mode = .custom
+                }
+                analytics.recordColorChanged(color: textColor, mode: mode)
+                lastReportedColor = textColor
+                lastReportedColorMode = textColorMode
+            }
+        }
         if let color = customColor.usingColorSpace(.sRGB) {
             UserDefaults.standard.set([color.redComponent, color.greenComponent, color.blueComponent], forKey: "customColor")
         }

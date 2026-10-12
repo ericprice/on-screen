@@ -36,3 +36,11 @@ Source: https://github.com/sparkle-project/Sparkle
 Sparkle is distributed under the MIT license, with additional notices for its
 bundled components. The complete license and notices are in
 `Licenses/Sparkle.txt` and the app's bundled `Sparkle.txt` resource.
+
+# TelemetryDeck analytics
+
+TelemetryDeck Swift SDK 2.14.2 by Daniel Jilg and contributors.
+Source: https://github.com/TelemetryDeck/SwiftSDK
+
+The SDK uses a modified MIT license without an attribution requirement.
+Its privacy manifest is included in the SDK's bundled resources.

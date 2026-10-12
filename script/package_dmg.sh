@@ -10,7 +10,7 @@ else
   ARCHIVE="$ROOT_DIR/build/Distribution.xcarchive"
   EXPORT_DIR="$ROOT_DIR/build/Distribution-export"
   # Archive/export signs Sparkle's nested helper tools for Developer ID distribution.
-  if ! xcodebuild -project "$ROOT_DIR/On Screen.xcodeproj" -scheme "On Screen" -configuration Release -archivePath "$ARCHIVE" ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO ALWAYS_SEARCH_USER_PATHS=NO ENABLE_HARDENED_RUNTIME=YES DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:?Set DEVELOPMENT_TEAM to your Apple Developer team ID}" CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" archive > "$ROOT_DIR/build/distribution-build.log" 2>&1; then
+  if ! xcodebuild -project "$ROOT_DIR/On Screen.xcodeproj" -scheme "On Screen" -configuration Release -archivePath "$ARCHIVE" ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO ALWAYS_SEARCH_USER_PATHS=NO ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:?Set DEVELOPMENT_TEAM to your Apple Developer team ID}" CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" archive > "$ROOT_DIR/build/distribution-build.log" 2>&1; then
     tail -60 "$ROOT_DIR/build/distribution-build.log"
     exit 1
   fi
