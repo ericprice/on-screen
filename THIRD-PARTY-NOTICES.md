@@ -27,3 +27,12 @@ Studio Eric Price LLC.
 
 The MIT license for the application code does not replace the font's license.
 No endorsement by Vincent Bruijn is implied.
+
+# Sparkle updater
+
+Sparkle 2.10.0 by the Sparkle Project: https://sparkle-project.org/
+Source: https://github.com/sparkle-project/Sparkle
+
+Sparkle is distributed under the MIT license, with additional notices for its
+bundled components. The complete license and notices are in
+`Licenses/Sparkle.txt` and the app's bundled `Sparkle.txt` resource.

@@ -6,21 +6,14 @@
     {
       "layers" : [
         {
-          "fill-specializations" : [
-            {
-              "value" : {
-                "solid" : "extended-gray:1.00000,1.00000"
-              }
-            },
+          "image-name" : "kawara-app-icon 2.svg",
+          "name" : "kawara-app-icon 2",
+          "opacity-specializations" : [
             {
               "appearance" : "tinted",
-              "value" : {
-                "solid" : "extended-gray:1.00000,0.67000"
-              }
+              "value" : 0.49
             }
-          ],
-          "image-name" : "kawara-app-icon.svg",
-          "name" : "kawara-app-icon"
+          ]
         }
       ],
       "shadow" : {

@@ -29,10 +29,10 @@ separately under [Creative Commons Attribution-ShareAlike 4.0 International
 (CC BY-SA 4.0)](Licenses/CC-BY-SA-4.0.txt).
 
 ISO 8601 Kawara is adapted from [On Kawara](https://github.com/y-a-v-a/aan_arwok_)
-by Vincent Bruijn (y-a-v-a / Yet Another Visual Artist), copyright © 2018–2021
-Vincent Bruijn. Studio Eric Price LLC. modified glyphs, including punctuation,
-renamed the font, and exported it as OpenType. Modifications copyright © 2026
-Studio Eric Price LLC.
+by Vincent Bruijn, copyright © 2018–2021
+Vincent Bruijn. Studio Eric Price LLC modified glyphs, including punctuation.
+Modifications copyright © 2026
+Studio Eric Price LLC
 
 The adapted font remains under CC BY-SA 4.0. See
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the full attribution and

@@ -2,9 +2,12 @@ import AppKit
 import CoreText
 import ServiceManagement
 import OSLog
+import Sparkle
 
 @MainActor
 final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
+    // Start after duplicate-instance detection; Sparkle owns persisted update preferences.
+    private let updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
     private static let customTextLimit = 24
     // Resolve after the bundled font has been registered, without font fallback.
     private lazy var supportedCharacters = CTFontCopyCharacterSet(CTFontCreateWithName("ISO8601Kawara-Regular" as CFString, 100, nil))
@@ -58,6 +61,8 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         window.contentView = TimestampView()
         self.window = window
 
+        updaterController.startUpdater()
+
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let iconURL = Bundle.main.url(forResource: "kawara-menu-icon", withExtension: "pdf"),
            let icon = NSImage(contentsOf: iconURL) {
@@ -71,10 +76,14 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         about.target = self
         menu.addItem(about)
         menu.addItem(.separator())
+        let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
+        checkForUpdates.target = updaterController
+        menu.addItem(checkForUpdates)
+        menu.addItem(.separator())
         let custom = NSMenuItem(title: "Custom Text…", action: #selector(showCustomText), keyEquivalent: "")
         custom.target = self
         menu.addItem(custom)
-        let reset = NSMenuItem(title: "Reset", action: #selector(resetTimestamp), keyEquivalent: "")
+        let reset = NSMenuItem(title: "Reset to Current Timestamp", action: #selector(resetTimestamp), keyEquivalent: "")
         reset.target = self
         menu.addItem(reset)
         menu.addItem(.separator())

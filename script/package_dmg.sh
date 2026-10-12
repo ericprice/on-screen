@@ -7,11 +7,25 @@ SIGNING_IDENTITY="${SIGNING_IDENTITY:?Set SIGNING_IDENTITY to your Developer ID 
 if [[ -n "${DISTRIBUTION_APP:-}" ]]; then
   BUILT_APP="$DISTRIBUTION_APP"
 else
-  if ! xcodebuild -project "$ROOT_DIR/ISO8601Kawara.xcodeproj" -target ISO8601Kawara -configuration Release SYMROOT="$ROOT_DIR/build/Distribution" ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO ALWAYS_SEARCH_USER_PATHS=NO ENABLE_HARDENED_RUNTIME=YES DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:?Set DEVELOPMENT_TEAM to your Apple Developer team ID}" CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" build > "$ROOT_DIR/build/distribution-build.log" 2>&1; then
+  ARCHIVE="$ROOT_DIR/build/Distribution.xcarchive"
+  EXPORT_DIR="$ROOT_DIR/build/Distribution-export"
+  # Archive/export signs Sparkle's nested helper tools for Developer ID distribution.
+  if ! xcodebuild -project "$ROOT_DIR/ISO8601Kawara.xcodeproj" -scheme ISO8601Kawara -configuration Release -archivePath "$ARCHIVE" ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO ALWAYS_SEARCH_USER_PATHS=NO ENABLE_HARDENED_RUNTIME=YES DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:?Set DEVELOPMENT_TEAM to your Apple Developer team ID}" CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" archive > "$ROOT_DIR/build/distribution-build.log" 2>&1; then
     tail -60 "$ROOT_DIR/build/distribution-build.log"
     exit 1
   fi
-  BUILT_APP="$ROOT_DIR/build/Distribution/Release/ISO 8601 Kawara.app"
+  EXPORT_OPTIONS="$ROOT_DIR/build/ExportOptions.plist"
+  python3 - "$EXPORT_OPTIONS" "$DEVELOPMENT_TEAM" "$SIGNING_IDENTITY" <<'PYTHON'
+import plistlib, sys
+with open(sys.argv[1], "wb") as file:
+    plistlib.dump({"method": "developer-id", "teamID": sys.argv[2],
+                  "signingStyle": "manual", "signingCertificate": sys.argv[3]}, file)
+PYTHON
+  if ! xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$EXPORT_OPTIONS" > "$ROOT_DIR/build/distribution-export.log" 2>&1; then
+    tail -60 "$ROOT_DIR/build/distribution-export.log"
+    exit 1
+  fi
+  BUILT_APP="$EXPORT_DIR/ISO 8601 Kawara.app"
 fi
 codesign --verify --deep --strict "$BUILT_APP"
 APP_ARCHS="$(lipo -archs "$BUILT_APP/Contents/MacOS/ISO8601Kawara")"
@@ -26,6 +40,8 @@ ln -s /Applications "$STAGING_DIR/Applications"
   sed -e 's/^#* //' -e 's/`//g' "$ROOT_DIR/THIRD-PARTY-NOTICES.md"
   printf '\n\nFULL FONT LICENSE — CC BY-SA 4.0\n\n'
   cat "$ROOT_DIR/Licenses/CC-BY-SA-4.0.txt"
+  printf '\n\nSPARKLE LICENSES AND NOTICES\n\n'
+  cat "$ROOT_DIR/Licenses/Sparkle.txt"
 } > "$STAGING_DIR/Licenses.txt"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT_APP/Contents/Info.plist")"
 DMG="$ROOT_DIR/dist/ISO-8601-Kawara-$VERSION.dmg"

@@ -9,7 +9,7 @@ INSTALLED_BUNDLE="$HOME/Applications/ISO 8601 Kawara.app"
 pkill -x ISO8601Kawara >/dev/null 2>&1 || true
 pkill -x OnKawara >/dev/null 2>&1 || true
 mkdir -p "$ROOT_DIR/build" "$ROOT_DIR/dist" "$HOME/Applications"
-if ! xcodebuild -project "$ROOT_DIR/ISO8601Kawara.xcodeproj" -target ISO8601Kawara -configuration Release SYMROOT="$ROOT_DIR/build/App" ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES ALWAYS_SEARCH_USER_PATHS=NO build > "$ROOT_DIR/build/app-build.log" 2>&1; then
+if ! xcodebuild -project "$ROOT_DIR/ISO8601Kawara.xcodeproj" -scheme ISO8601Kawara -configuration Release SYMROOT="$ROOT_DIR/build/App" ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES ALWAYS_SEARCH_USER_PATHS=NO build > "$ROOT_DIR/build/app-build.log" 2>&1; then
   tail -60 "$ROOT_DIR/build/app-build.log"
   exit 1
 fi
