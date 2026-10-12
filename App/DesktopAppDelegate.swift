@@ -69,7 +69,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             }
         }
         let window = DesktopWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
-        window.title = "ISO 8601 Today"
+        window.title = "On Screen"
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
@@ -86,16 +86,16 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         updaterController.startUpdater()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let iconURL = Bundle.main.url(forResource: "today-menu-icon", withExtension: "pdf"),
+        if let iconURL = Bundle.main.url(forResource: "on-screen-menu-icon", withExtension: "pdf"),
            let icon = NSImage(contentsOf: iconURL) {
             icon.size = NSSize(width: 18, height: 18)
             icon.isTemplate = true
-            icon.accessibilityDescription = "ISO 8601 Today"
+            icon.accessibilityDescription = "On Screen"
             item.button?.image = icon
         }
         let menu = NSMenu()
         menu.delegate = self
-        let about = NSMenuItem(title: "About ISO 8601 Today", action: #selector(showAbout), keyEquivalent: "")
+        let about = NSMenuItem(title: "About On Screen", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
         menu.addItem(.separator())
@@ -125,7 +125,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             menu.addItem(color)
         }
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit ISO 8601 Today", action: #selector(quitApp), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit On Screen", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         item.menu = menu
@@ -257,7 +257,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             "loginItemStatus": SMAppService.mainApp.status.rawValue
         ]
         do {
-            let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("ISO8601OnKawara")
+            let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("On Screen")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("state.json"), options: .atomic)
         } catch {

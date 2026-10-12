@@ -6,8 +6,8 @@ SPARKLE_BIN="${SPARKLE_BIN:?Set SPARKLE_BIN to the directory containing generate
 ACCOUNT="${SPARKLE_KEY_ACCOUNT:-iso-8601-kawara}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/App/Info.plist")"
 TAG="v$VERSION"
-REPOSITORY="ericprice/iso-8601-today"
-DMG="${UPDATE_DMG:-$ROOT_DIR/dist/ISO-8601-Today-$VERSION.dmg}"
+REPOSITORY="ericprice/on-screen"
+DMG="${UPDATE_DMG:-$ROOT_DIR/dist/On-Screen-$VERSION.dmg}"
 [[ -f "$DMG" ]] || { echo "Build and notarize the DMG first." >&2; exit 1; }
 # Only notarized, stapled, Developer ID signed archives may become update assets.
 xcrun stapler validate "$DMG"
@@ -27,6 +27,7 @@ feed, version, dmg, info_path = sys.argv[1:]
 ns = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
 items = ET.parse(feed).findall("./channel/item")
 assert len(items) == 1, "Expected exactly one update"
+assert ET.parse(feed).findtext("./channel/title") == "On Screen"
 item = items[0]
 enclosure = item.find("enclosure")
 assert item.findtext("sparkle:shortVersionString", namespaces=ns) == version
@@ -34,7 +35,7 @@ assert item.find("description") is None
 assert item.find("sparkle:releaseNotesLink", namespaces=ns) is None
 with open(info_path, "rb") as file:
     assert item.findtext("sparkle:version", namespaces=ns) == plistlib.load(file)["CFBundleVersion"]
-assert enclosure.get("url") == f"https://github.com/ericprice/iso-8601-today/releases/download/v{version}/{pathlib.Path(dmg).name}"
+assert enclosure.get("url") == f"https://github.com/ericprice/on-screen/releases/download/v{version}/{pathlib.Path(dmg).name}"
 assert enclosure.get("{%s}edSignature" % ns["sparkle"]), "Missing update signature"
 assert int(enclosure.get("length")) == pathlib.Path(dmg).stat().st_size
 PYTHON

@@ -1,5 +1,5 @@
 version = 1
-name = "iso-8601-today"
+name = "On Screen"
 
 [setup]
 script = ""

@@ -1,4 +1,6 @@
-# ISO 8601 Today
+# On Screen
+
+[Download for macOS](https://ericprice.info/downloads/on-screen)
 
 MIT License
 
