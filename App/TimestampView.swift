@@ -5,12 +5,12 @@ struct TimestampArtwork {
     let line: CTLine
     let inkBounds: CGRect
 
-    static func make(_ timestamp: String, width: CGFloat, height: CGFloat) -> TimestampArtwork {
+    static func make(_ timestamp: String, width: CGFloat, height: CGFloat, color: NSColor = .white) -> TimestampArtwork {
         func line(at size: CGFloat) -> CTLine {
             let font = CTFontCreateWithName("ISO8601Kawara-Regular" as CFString, size, nil)
             let result = NSAttributedString(string: timestamp, attributes: [
                 .font: font,
-                .foregroundColor: NSColor.white,
+                .foregroundColor: color,
                 .kern: -0.052 * size
             ])
             return CTLineCreateWithAttributedString(result)

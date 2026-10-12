@@ -6,6 +6,7 @@ import Sparkle
 
 @MainActor
 final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate {
+    private enum TextColorMode: Int { case white, black, custom }
     // Start after duplicate-instance detection; Sparkle owns persisted update preferences.
     private let updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
     private static let customTextLimit = 24
@@ -15,6 +16,26 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private var window: DesktopWindow?
     private var statusItem: NSStatusItem?
     private var timestamp = ""
+    private var textColorMode: TextColorMode = {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "textColorMode") != nil {
+            return TextColorMode(rawValue: defaults.integer(forKey: "textColorMode")) ?? .white
+        }
+        return defaults.bool(forKey: "blackText") ? .black : .white
+    }()
+    private var customColor: NSColor = {
+        guard let components = UserDefaults.standard.array(forKey: "customColor") as? [Double],
+              components.count == 3,
+              components.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return .white }
+        return NSColor(srgbRed: components[0], green: components[1], blue: components[2], alpha: 1)
+    }()
+    private var textColor: NSColor {
+        switch textColorMode {
+        case .white: return .white
+        case .black: return .black
+        case .custom: return customColor
+        }
+    }
     private var customText: String? = UserDefaults.standard.string(forKey: "customText").map { String($0.prefix(customTextLimit)) }
     private var updatedAt = Date()
     private var reason = "launch"
@@ -80,12 +101,23 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         checkForUpdates.target = updaterController
         menu.addItem(checkForUpdates)
         menu.addItem(.separator())
-        let custom = NSMenuItem(title: "Custom Text…", action: #selector(showCustomText), keyEquivalent: "")
+        let custom = NSMenuItem(title: "Custom Text…", action: #selector(showCustomText), keyEquivalent: "t")
+        custom.keyEquivalentModifierMask = .command
         custom.target = self
         menu.addItem(custom)
-        let reset = NSMenuItem(title: "Reset to Current Timestamp", action: #selector(resetTimestamp), keyEquivalent: "")
+        let reset = NSMenuItem(title: "Reset to Current Timestamp", action: #selector(resetTimestamp), keyEquivalent: "r")
+        reset.keyEquivalentModifierMask = .command
         reset.target = self
         menu.addItem(reset)
+        menu.addItem(.separator())
+        for (tag, title) in ["White Text", "Black Text", "Custom Text Color…"].enumerated() {
+            let color = NSMenuItem(title: title, action: #selector(selectTextColor(_:)), keyEquivalent: String(tag + 1))
+            color.keyEquivalentModifierMask = .command
+            color.target = self
+            color.tag = tag
+            color.state = textColorMode.rawValue == tag ? .on : .off
+            menu.addItem(color)
+        }
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit ISO 8601 Kawara", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
@@ -141,7 +173,8 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         }
         let artwork = TimestampArtwork.make(customText ?? timestamp,
                                             width: screen.frame.width * 0.75,
-                                            height: screen.frame.height * 0.50)
+                                            height: screen.frame.height * 0.50,
+                                            color: textColor)
         // Even point dimensions avoid asymmetric frame rounding by NSWindow.
         // The glyph bounds fit within 75% of display width and 50% of height.
         let size = NSSize(width: ceil((artwork.inkBounds.width + 4) / 2) * 2,
@@ -158,6 +191,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         guard let window else { return }
         let values: [String: Any] = [
             "timestamp": timestamp,
+            "textColorMode": String(describing: textColorMode),
             "updatedAt": updatedAt.timeIntervalSince1970,
             "reason": reason,
             "primaryDisplayID": CGMainDisplayID(),
@@ -264,6 +298,35 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     @objc private func resetTimestamp() {
         clearCustomText()
         refreshTimestamp(reason: "reset")
+    }
+    @objc private func selectTextColor(_ sender: NSMenuItem) {
+        guard let mode = TextColorMode(rawValue: sender.tag) else { return }
+        textColorMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: "textColorMode")
+        for item in sender.menu?.items ?? [] where item.action == #selector(selectTextColor(_:)) {
+            item.state = mode.rawValue == item.tag ? .on : .off
+        }
+        positionArtwork()
+        let panel = NSColorPanel.shared
+        if mode == .custom {
+            panel.title = "Custom Text Color"
+            panel.showsAlpha = false
+            panel.isContinuous = true
+            panel.color = customColor
+            panel.setTarget(self)
+            panel.setAction(#selector(customColorChanged(_:)))
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+        } else {
+            panel.orderOut(nil)
+        }
+    }
+    @objc private func customColorChanged(_ sender: NSColorPanel) {
+        guard textColorMode == .custom,
+              let color = sender.color.usingColorSpace(.sRGB) else { return }
+        customColor = color.withAlphaComponent(1)
+        UserDefaults.standard.set([color.redComponent, color.greenComponent, color.blueComponent], forKey: "customColor")
+        positionArtwork()
     }
     @objc private func displaysChanged() { positionArtwork() }
     @objc private func quitApp() { NSApp.terminate(nil) }
