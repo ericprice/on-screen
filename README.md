@@ -1,10 +1,8 @@
 # On Screen
 
-[Download for macOS](https://ericprice.info/downloads/on-screen)
-
 MIT License
 
-Copyright (c) 2026 Studio Eric Price LLC.
+Copyright © 2026 Studio Eric Price LLC.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -26,17 +24,11 @@ SOFTWARE.
 
 ## Font license
 
-The MIT license above covers the application code. The bundled font is licensed
-separately under [Creative Commons Attribution-ShareAlike 4.0 International
-(CC BY-SA 4.0)](Licenses/CC-BY-SA-4.0.txt).
-
 ISO 8601 Kawara is adapted from [On Kawara](https://github.com/y-a-v-a/aan_arwok_)
-by Vincent Bruijn, copyright © 2018–2021
-Vincent Bruijn. Studio Eric Price LLC modified glyphs, including punctuation.
-Modifications copyright © 2026
-Studio Eric Price LLC
-
-The adapted font remains under CC BY-SA 4.0. See
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the full attribution and
-modification notice, and the [font repository](https://github.com/ericprice/iso-8601-kawara-font)
-for the OTF and editable Glyphs source.
+by Vincent Bruijn, copyright © 2018–2021 Vincent Bruijn. Studio Eric Price LLC
+adapted the font for this application, edited glyphs, and renamed it ISO 8601
+Kawara. The adapted font (`Resources/ISO8601Kawara-Regular.otf`) and its [editable
+source](https://github.com/ericprice/iso-8601-kawara/), as well as the retained
+original/reference font files, are distributed under 
+[CC BY-SA 4.0](Licenses/CC-BY-SA-4.0.txt). Modifications copyright © 2026 Studio
+Eric Price LLC.
