@@ -30,40 +30,18 @@ fi
 codesign --verify --deep --strict "$BUILT_APP"
 APP_ARCHS="$(lipo -archs "$BUILT_APP/Contents/MacOS/On Screen")"
 [[ " $APP_ARCHS " == *" arm64 "* && " $APP_ARCHS " == *" x86_64 "* ]] || { echo "Missing universal architectures: $APP_ARCHS" >&2; exit 1; }
-STAGING_DIR="$(mktemp -d "$ROOT_DIR/build/dmg.XXXXXX")"
-ditto "$BUILT_APP" "$STAGING_DIR/On Screen.app"
-ln -s /Applications "$STAGING_DIR/Applications"
-{
-  printf 'On Screen — Licenses and Attribution\n\nApplication code, build scripts, and documentation: MIT License.\nFont assets: CC BY-SA 4.0. Artwork assets are separate from these licenses.\n\n'
-  cat "$ROOT_DIR/LICENSE"
-  printf '\n\nFONT ATTRIBUTION AND MODIFICATIONS\n\n'
-  sed -e 's/^#* //' -e 's/`//g' "$ROOT_DIR/THIRD-PARTY-NOTICES.md"
-  printf '\n\nFULL FONT LICENSE — CC BY-SA 4.0\n\n'
-  cat "$ROOT_DIR/Licenses/CC-BY-SA-4.0.txt"
-  printf '\n\nSPARKLE LICENSES AND NOTICES\n\n'
-  cat "$ROOT_DIR/Licenses/Sparkle.txt"
-} > "$STAGING_DIR/Licenses.txt"
+for RESOURCE in LICENSE README.md CC-BY-SA-4.0.txt; do
+  [[ -f "$BUILT_APP/Contents/Resources/$RESOURCE" ]] || { echo "Missing bundled license resource: $RESOURCE" >&2; exit 1; }
+done
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT_APP/Contents/Info.plist")"
-DMG="$ROOT_DIR/dist/On-Screen-$VERSION.dmg"
-if [[ -f "$DMG" ]]; then
-  PREVIOUS_DIR="$(mktemp -d "$ROOT_DIR/build/previous-dmg.XXXXXX")"
-  mv "$DMG" "$PREVIOUS_DIR/previous.dmg"
+ZIP="$ROOT_DIR/dist/On-Screen-$VERSION.zip"
+if [[ -f "$ZIP" ]]; then
+  PREVIOUS_DIR="$(mktemp -d "$ROOT_DIR/build/previous-zip.XXXXXX")"
+  mv "$ZIP" "$PREVIOUS_DIR/previous.zip"
 fi
-# macOS 27 uses diskutil for image creation and attachment.
-diskutil image create from --volumeName "On Screen" --format UDZO "$STAGING_DIR" "$DMG"
-codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$DMG"
+# Preserve the bundle's permissions, symlinks, and macOS metadata.
+ditto -c -k --sequesterRsrc --keepParent "$BUILT_APP" "$ZIP"
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
-  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
-  xcrun stapler staple "$DMG"
-  xcrun stapler validate "$DMG"
-  spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+  "$ROOT_DIR/script/notarize_zip.sh"
 fi
-MOUNT_DIR="$(mktemp -d "$ROOT_DIR/build/dmg-check.XXXXXX")"
-diskutil image attach --readOnly --nobrowse --mountPoint "$MOUNT_DIR" "$DMG"
-trap 'diskutil eject "$MOUNT_DIR" >/dev/null 2>&1 || true' EXIT
-codesign --verify --deep --strict "$MOUNT_DIR/On Screen.app"
-cmp "$STAGING_DIR/Licenses.txt" "$MOUNT_DIR/Licenses.txt"
-[[ "$(readlink "$MOUNT_DIR/Applications")" == /Applications ]]
-diskutil eject "$MOUNT_DIR"
-trap - EXIT
-printf 'Created: %s\n' "$DMG"
+printf 'Created: %s\n' "$ZIP"

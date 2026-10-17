@@ -29,6 +29,6 @@ by Vincent Bruijn, copyright © 2018–2021 Vincent Bruijn. Studio Eric Price LL
 adapted the font for this application, edited glyphs, and renamed it ISO 8601
 Kawara. The adapted font (`Resources/ISO8601Kawara-Regular.otf`) and its [editable
 source](https://github.com/ericprice/iso-8601-kawara/), as well as the retained
-original/reference font files, are distributed under 
+original/reference font files, are distributed under
 [CC BY-SA 4.0](Licenses/CC-BY-SA-4.0.txt). Modifications copyright © 2026 Studio
 Eric Price LLC.

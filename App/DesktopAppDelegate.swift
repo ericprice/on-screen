@@ -301,10 +301,17 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     @objc private func didWake() { refreshTimestamp(reason: "wake") }
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        let credits = NSAttributedString(string: "onscreen.ericprice.info", attributes: [
+            .link: URL(string: "https://onscreen.ericprice.info")!,
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .paragraphStyle: paragraphStyle
+        ])
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
             .version: "",
-            .credits: NSAttributedString(string: "")
+            .credits: credits
         ])
     }
 
