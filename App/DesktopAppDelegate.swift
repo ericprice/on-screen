@@ -5,7 +5,7 @@ import OSLog
 import Sparkle
 
 @MainActor
-final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate, NSMenuDelegate {
+final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate, NSMenuDelegate, NSMenuItemValidation {
     private enum TextColorMode: Int { case white, black, custom }
     // Start after duplicate-instance detection; Sparkle owns persisted update preferences.
     private let updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
@@ -148,6 +148,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         daily.keyEquivalentModifierMask = .command
         daily.target = self
         daily.state = updateDaily ? .on : .off
+        daily.isEnabled = customText == nil
         menu.addItem(daily)
         menu.addItem(.separator())
         for (tag, title) in ["White Text", "Black Text", "Custom Text Color…"].enumerated() {
@@ -206,6 +207,10 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         analytics.recordPreferencesChanged(analyticsPreferences)
     }
 
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        menuItem.action != #selector(toggleUpdateDaily(_:)) || customText == nil
+    }
+
     private func updateDateFormatMenu() {
         for item in dateFormatMenu?.items ?? [] {
             if let value = item.representedObject as? String, let format = DateDisplayFormat(rawValue: value) {
@@ -240,6 +245,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     @objc private func toggleUpdateDaily(_ sender: NSMenuItem) {
+        guard customText == nil else { return }
         updateDaily.toggle()
         UserDefaults.standard.set(updateDaily, forKey: "updateDaily")
         sender.state = updateDaily ? .on : .off
@@ -335,7 +341,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             UserDefaults.standard.set(dateFormat.rawValue, forKey: "dateFormat")
         }
         renderTimestamp(reason: reason)
-        dailyUpdateScheduler.schedule(enabled: updateDaily, now: updatedAt)
+        dailyUpdateScheduler.schedule(enabled: updateDaily && customText == nil, now: updatedAt)
     }
 
     private func renderTimestamp(reason: String) {
@@ -347,6 +353,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     private func positionArtwork() {
         statusItem?.menu?.items.first(where: { $0.action == #selector(showCustomText) })?.state = customText == nil ? .off : .on
+        statusItem?.menu?.items.first(where: { $0.action == #selector(toggleUpdateDaily(_:)) })?.isEnabled = customText == nil
         guard let window, let view = window.contentView as? TimestampView else { return }
         let primaryID = CGMainDisplayID()
         guard let screen = NSScreen.screens.first(where: {
@@ -407,7 +414,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     @objc private func didWake() { refreshTimestamp(reason: "wake") }
     @objc private func willSleep() { dailyUpdateScheduler.cancel() }
     @objc private func clockChanged() {
-        guard updateDaily else { return }
+        guard updateDaily && customText == nil else { return }
         refreshTimestamp(reason: "clock/time-zone-changed")
     }
     @objc private func showAbout() {
@@ -450,6 +457,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         } else {
             customText = field.stringValue
             UserDefaults.standard.set(customText, forKey: "customText")
+            dailyUpdateScheduler.cancel()
             positionArtwork()
         }
         if customText != previousText || (customText == nil && timestamp != previousTimestamp) {
@@ -498,6 +506,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private func clearCustomText() {
         customText = nil
         UserDefaults.standard.removeObject(forKey: "customText")
+        dailyUpdateScheduler.schedule(enabled: updateDaily)
     }
 
     @objc private func resetTimestamp() {
