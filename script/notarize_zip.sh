@@ -2,6 +2,8 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+# An explicit empty value retains the interactive Apple ID login option.
+export NOTARY_PROFILE="${NOTARY_PROFILE-on-screen}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/App/Info.plist")"
 ZIP="$ROOT_DIR/dist/On-Screen-$VERSION.zip"
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then

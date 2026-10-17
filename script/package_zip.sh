@@ -2,6 +2,8 @@
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+# An explicit empty value skips notarization; otherwise use the saved profile.
+export NOTARY_PROFILE="${NOTARY_PROFILE-on-screen}"
 mkdir -p "$ROOT_DIR/build" "$ROOT_DIR/dist"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:?Set SIGNING_IDENTITY to your Developer ID Application identity}"
 if [[ -n "${DISTRIBUTION_APP:-}" ]]; then
