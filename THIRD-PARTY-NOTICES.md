@@ -1,6 +1,6 @@
 # Font attribution
 
-On Kawara font by Vincent Bruijn (y-a-v-a / Yet Another Visual Artist).
+On Kawara font by Vincent Bruijn.
 
 Copyright 2018-2021 Vincent Bruijn.
 Original attribution: vebruijn@gmail.com • y-a-v-a.org • Yet Another Visual Artist.
@@ -15,10 +15,8 @@ and `CC-BY-SA-4.0.txt` in the app's bundled resources.
 
 ## Modifications
 
-Studio Eric Price LLC. adapted the font for this application, edited glyphs
-(including punctuation), renamed it ISO 8601 Kawara / ISO8601Kawara-Regular,
-and exported it as an OpenType font. The original web font was also converted
-to a native TrueType reference file during development.
+Studio Eric Price LLC. adapted the font for this application, edited glyphs, 
+renamed it ISO 8601 Kawara / ISO8601Kawara-Regular, and exported it as an OpenType font.
 
 The adapted font (`Resources/ISO8601Kawara-Regular.otf`) and its editable source
 (https://github.com/ericprice/iso-8601-kawara/blob/main/ISO8601Kawara.glyphs), as well as the retained original/reference font files,
@@ -36,11 +34,3 @@ Source: https://github.com/sparkle-project/Sparkle
 Sparkle is distributed under the MIT license, with additional notices for its
 bundled components. The complete license and notices are in
 `Licenses/Sparkle.txt` and the app's bundled `Sparkle.txt` resource.
-
-# TelemetryDeck analytics
-
-TelemetryDeck Swift SDK 2.14.2 by Daniel Jilg and contributors.
-Source: https://github.com/TelemetryDeck/SwiftSDK
-
-The SDK uses a modified MIT license without an attribution requirement.
-Its privacy manifest is included in the SDK's bundled resources.
