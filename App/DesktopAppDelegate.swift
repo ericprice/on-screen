@@ -328,9 +328,9 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         }
     }
 
-    private func refreshTimestamp(reason: String) {
+    private func refreshTimestamp(reason: String, allowRandomization: Bool = true) {
         updatedAt = Date()
-        if randomizeFormat {
+        if randomizeFormat && allowRandomization {
             dateFormat = dateFormat.randomAlternative()
             UserDefaults.standard.set(dateFormat.rawValue, forKey: "dateFormat")
         }
@@ -504,7 +504,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         let previousText = customText
         let previousTimestamp = timestamp
         clearCustomText()
-        refreshTimestamp(reason: "reset")
+        refreshTimestamp(reason: "reset", allowRandomization: previousText != nil)
         if previousText != nil || timestamp != previousTimestamp {
             analytics.recordTextChanged(isCustom: false)
         }
