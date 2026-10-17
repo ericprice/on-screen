@@ -17,7 +17,15 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private let logger = Logger(subsystem: "info.ericprice.on-screen", category: "desktop")
     private var window: DesktopWindow?
     private var statusItem: NSStatusItem?
+    private var dateFormatMenu: NSMenu?
     private var timestamp = ""
+    private var dateFormat = UserDefaults.standard.string(forKey: "dateFormat").flatMap(DateDisplayFormat.init(rawValue:)) ?? .iso8601
+    private var includeTime = UserDefaults.standard.bool(forKey: "includeTime")
+    private var updateDaily = UserDefaults.standard.bool(forKey: "updateDaily")
+    private var randomizeFormat = UserDefaults.standard.bool(forKey: "randomizeFormat")
+    private lazy var dailyUpdateScheduler = DailyUpdateScheduler { [weak self] in
+        self?.refreshTimestamp(reason: "midnight")
+    }
     private var textColorMode = TextColorMode(rawValue: UserDefaults.standard.integer(forKey: "textColorMode")) ?? .white
     private var customColor: NSColor = {
         guard let components = UserDefaults.standard.array(forKey: "customColor") as? [Double],
@@ -105,6 +113,28 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         checkForUpdates.target = updaterController
         menu.addItem(checkForUpdates)
         menu.addItem(.separator())
+        let formats = NSMenu(title: "Date Format")
+        formats.delegate = self
+        formats.autoenablesItems = false
+        for format in DateDisplayFormat.allCases.sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending }) {
+            let option = NSMenuItem(title: format.title, action: #selector(selectDateFormat(_:)), keyEquivalent: "")
+            option.target = self
+            option.representedObject = format.rawValue
+            formats.addItem(option)
+        }
+        formats.addItem(.separator())
+        let time = NSMenuItem(title: "Include Time", action: #selector(toggleIncludeTime), keyEquivalent: "t")
+        time.keyEquivalentModifierMask = [.command, .shift]
+        time.target = self
+        formats.addItem(time)
+        let randomize = NSMenuItem(title: "Randomize Format", action: #selector(toggleRandomizeFormat), keyEquivalent: "r")
+        randomize.keyEquivalentModifierMask = [.command, .shift]
+        randomize.target = self
+        formats.addItem(randomize)
+        let formatItem = NSMenuItem(title: "Date Format", action: nil, keyEquivalent: "")
+        formatItem.submenu = formats
+        menu.addItem(formatItem)
+        dateFormatMenu = formats
         let custom = NSMenuItem(title: "Custom Text…", action: #selector(showCustomText), keyEquivalent: "t")
         custom.keyEquivalentModifierMask = .command
         custom.target = self
@@ -114,6 +144,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         reset.keyEquivalentModifierMask = .command
         reset.target = self
         menu.addItem(reset)
+        let daily = NSMenuItem(title: "Update Daily", action: #selector(toggleUpdateDaily(_:)), keyEquivalent: "d")
+        daily.keyEquivalentModifierMask = .command
+        daily.target = self
+        daily.state = updateDaily ? .on : .off
+        menu.addItem(daily)
         menu.addItem(.separator())
         for (tag, title) in ["White Text", "Black Text", "Custom Text Color…"].enumerated() {
             let color = NSMenuItem(title: title, action: #selector(selectTextColor(_:)), keyEquivalent: String(tag + 1))
@@ -131,7 +166,10 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         statusItem = item
 
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(clockChanged), name: .NSSystemClockDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(clockChanged), name: .NSSystemTimeZoneDidChange, object: nil)
         registerAtLogin()
         refreshTimestamp(reason: "launch/login")
         lastReportedColor = textColor
@@ -142,6 +180,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        dailyUpdateScheduler.cancel()
         persistColorChanges()
     }
 
@@ -162,8 +201,63 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        updateDateFormatMenu()
         updateLoginItemMenu()
         analytics.recordPreferencesChanged(analyticsPreferences)
+    }
+
+    private func updateDateFormatMenu() {
+        for item in dateFormatMenu?.items ?? [] {
+            if let value = item.representedObject as? String, let format = DateDisplayFormat(rawValue: value) {
+                let preview = format.string(from: updatedAt, includeTime: includeTime)
+                item.title = "\(format.title) — \(preview)"
+                item.state = customText == nil && dateFormat == format ? .on : .off
+            } else if item.action == #selector(toggleIncludeTime) {
+                item.state = includeTime || dateFormat.alwaysIncludesTime ? .on : .off
+                item.isEnabled = !dateFormat.alwaysIncludesTime
+            } else if item.action == #selector(toggleRandomizeFormat) {
+                item.state = randomizeFormat ? .on : .off
+            }
+        }
+    }
+
+    @objc private func selectDateFormat(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String, let format = DateDisplayFormat(rawValue: value) else { return }
+        dateFormat = format
+        UserDefaults.standard.set(format.rawValue, forKey: "dateFormat")
+        clearCustomText()
+        renderTimestamp(reason: "date-format-changed")
+        analytics.recordTextChanged(isCustom: false)
+    }
+
+    @objc private func toggleIncludeTime() {
+        guard !dateFormat.alwaysIncludesTime else { return }
+        includeTime.toggle()
+        UserDefaults.standard.set(includeTime, forKey: "includeTime")
+        clearCustomText()
+        renderTimestamp(reason: "include-time-changed")
+        analytics.recordTextChanged(isCustom: false)
+    }
+
+    @objc private func toggleUpdateDaily(_ sender: NSMenuItem) {
+        updateDaily.toggle()
+        UserDefaults.standard.set(updateDaily, forKey: "updateDaily")
+        sender.state = updateDaily ? .on : .off
+        dailyUpdateScheduler.schedule(enabled: updateDaily)
+        positionArtwork()
+    }
+
+    @objc private func toggleRandomizeFormat() {
+        randomizeFormat.toggle()
+        UserDefaults.standard.set(randomizeFormat, forKey: "randomizeFormat")
+        if randomizeFormat {
+            clearCustomText()
+            refreshTimestamp(reason: "randomize-format-enabled")
+            analytics.recordTextChanged(isCustom: false)
+        } else {
+            updateDateFormatMenu()
+            positionArtwork()
+        }
     }
 
     private var analyticsPreferences: AppAnalytics.Preferences {
@@ -236,10 +330,18 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     private func refreshTimestamp(reason: String) {
         updatedAt = Date()
+        if randomizeFormat {
+            dateFormat = dateFormat.randomAlternative()
+            UserDefaults.standard.set(dateFormat.rawValue, forKey: "dateFormat")
+        }
+        renderTimestamp(reason: reason)
+        dailyUpdateScheduler.schedule(enabled: updateDaily, now: updatedAt)
+    }
+
+    private func renderTimestamp(reason: String) {
         self.reason = reason
-        let formatter = ISO8601DateFormatter()
-        formatter.timeZone = .current
-        timestamp = formatter.string(from: updatedAt)
+        timestamp = dateFormat.string(from: updatedAt, includeTime: includeTime)
+        updateDateFormatMenu()
         positionArtwork()
     }
 
@@ -273,6 +375,10 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         guard let window else { return }
         let values: [String: Any] = [
             "timestamp": timestamp,
+            "dateFormat": dateFormat.rawValue,
+            "includeTime": includeTime || dateFormat.alwaysIncludesTime,
+            "updateDaily": updateDaily,
+            "randomizeFormat": randomizeFormat,
             "textColorMode": String(describing: textColorMode),
             "updatedAt": updatedAt.timeIntervalSince1970,
             "reason": reason,
@@ -299,6 +405,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     @objc private func didWake() { refreshTimestamp(reason: "wake") }
+    @objc private func willSleep() { dailyUpdateScheduler.cancel() }
+    @objc private func clockChanged() {
+        guard updateDaily else { return }
+        refreshTimestamp(reason: "clock/time-zone-changed")
+    }
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
         let paragraphStyle = NSMutableParagraphStyle()

@@ -32,3 +32,7 @@ source](https://github.com/ericprice/iso-8601-kawara/), as well as the retained
 original/reference font files, are distributed under
 [CC BY-SA 4.0](Licenses/CC-BY-SA-4.0.txt). Modifications copyright © 2026 Studio
 Eric Price LLC.
+
+The bundled font includes slash and plus glyphs for numeric dates and UTC
+offsets. Their editable outlines and spacing are maintained in the linked
+Glyphs source.
