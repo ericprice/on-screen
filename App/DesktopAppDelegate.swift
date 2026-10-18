@@ -5,11 +5,14 @@ import OSLog
 import Sparkle
 
 @MainActor
-final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate, NSMenuDelegate, NSMenuItemValidation {
+final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDelegate, NSMenuDelegate, NSMenuItemValidation, SPUUpdaterDelegate {
     private enum TextColorMode: Int { case white, black, custom }
     // Start after duplicate-instance detection; Sparkle owns persisted update preferences.
-    private let updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
-    private let analytics = AppAnalytics()
+    private lazy var updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
+    private let analytics: AppAnalytics
+    private lazy var aboutLinkTracker = AboutWebsiteLinkTracker { [weak self] in
+        self?.analytics.recordWebsiteClicked()
+    }
     private var updatePreferenceObservations: [NSKeyValueObservation] = []
     private static let customTextLimit = 24
     // Resolve after the bundled font has been registered, without font fallback.
@@ -24,7 +27,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private var updateDaily = UserDefaults.standard.bool(forKey: "updateDaily")
     private var randomizeFormat = UserDefaults.standard.bool(forKey: "randomizeFormat")
     private lazy var dailyUpdateScheduler = DailyUpdateScheduler { [weak self] in
-        self?.refreshTimestamp(reason: "midnight")
+        self?.refreshTimestamp(reason: .midnight)
     }
     private var textColorMode = TextColorMode(rawValue: UserDefaults.standard.integer(forKey: "textColorMode")) ?? .white
     private var customColor: NSColor = {
@@ -47,6 +50,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private var pendingColorAnalytics = false
     private var lastReportedColor: NSColor?
     private var lastReportedColorMode: TextColorMode?
+
+    init(analytics: AppAnalytics = AppAnalytics()) {
+        self.analytics = analytics
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Prevent duplicate windows/menu items if the bundle is launched again.
@@ -90,6 +98,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         window.contentView = TimestampView()
         self.window = window
 
+        analytics.start()
         updaterController.startUpdater()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -109,8 +118,8 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         let openAtLogin = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin(_:)), keyEquivalent: "")
         openAtLogin.target = self
         menu.addItem(openAtLogin)
-        let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)), keyEquivalent: "")
-        checkForUpdates.target = updaterController
+        let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        checkForUpdates.target = self
         menu.addItem(checkForUpdates)
         menu.addItem(.separator())
         let formats = NSMenu(title: "Date Format")
@@ -172,11 +181,10 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         NotificationCenter.default.addObserver(self, selector: #selector(clockChanged), name: .NSSystemClockDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(clockChanged), name: .NSSystemTimeZoneDidChange, object: nil)
         registerAtLogin()
-        refreshTimestamp(reason: "launch/login")
+        refreshTimestamp(reason: .launch)
         lastReportedColor = textColor
         lastReportedColorMode = textColorMode
-        analytics.start()
-        analytics.recordLaunch(preferences: analyticsPreferences)
+        analytics.recordLaunch(preferences: analyticsPreferences, display: analyticsDisplayState)
         observeUpdatePreferences()
     }
 
@@ -194,6 +202,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
                 try service.register()
                 defaults.set(true, forKey: "loginRegistrationAttempted")
             } catch {
+                analytics.recordLoginFailure(error, operation: .automaticRegistration)
                 logger.error("Login registration failed: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -208,7 +217,19 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        menuItem.action != #selector(toggleUpdateDaily(_:)) || customText == nil
+        if menuItem.action == #selector(checkForUpdates(_:)) {
+            return updaterController.updater.canCheckForUpdates
+        }
+        return menuItem.action != #selector(toggleUpdateDaily(_:)) || customText == nil
+    }
+
+    @objc private func checkForUpdates(_ sender: NSMenuItem) {
+        analytics.recordUpdatesChecked()
+        updaterController.checkForUpdates(sender)
+    }
+
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        if let error { analytics.recordUpdateFailure(error, check: updateCheck) }
     }
 
     private func updateDateFormatMenu() {
@@ -228,11 +249,14 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     @objc private func selectDateFormat(_ sender: NSMenuItem) {
         guard let value = sender.representedObject as? String, let format = DateDisplayFormat(rawValue: value) else { return }
+        let previous = analyticsDisplayState
         dateFormat = format
         UserDefaults.standard.set(format.rawValue, forKey: "dateFormat")
         clearCustomText()
         renderTimestamp(reason: "date-format-changed")
-        analytics.recordTextChanged(isCustom: false)
+        if analyticsDisplayState != previous {
+            analytics.recordDisplaySettingChanged(.dateFormat, display: analyticsDisplayState)
+        }
     }
 
     @objc private func toggleIncludeTime() {
@@ -241,7 +265,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         UserDefaults.standard.set(includeTime, forKey: "includeTime")
         clearCustomText()
         renderTimestamp(reason: "include-time-changed")
-        analytics.recordTextChanged(isCustom: false)
+        analytics.recordDisplaySettingChanged(.includeTime, display: analyticsDisplayState)
     }
 
     @objc private func toggleUpdateDaily(_ sender: NSMenuItem) {
@@ -251,6 +275,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         sender.state = updateDaily ? .on : .off
         dailyUpdateScheduler.schedule(enabled: updateDaily)
         positionArtwork()
+        analytics.recordDisplaySettingChanged(.updateDaily, display: analyticsDisplayState)
     }
 
     @objc private func toggleRandomizeFormat() {
@@ -258,12 +283,17 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         UserDefaults.standard.set(randomizeFormat, forKey: "randomizeFormat")
         if randomizeFormat {
             clearCustomText()
-            refreshTimestamp(reason: "randomize-format-enabled")
-            analytics.recordTextChanged(isCustom: false)
+            refreshTimestamp(reason: .randomizationEnabled)
         } else {
             updateDateFormatMenu()
             positionArtwork()
         }
+        analytics.recordDisplaySettingChanged(.randomizeFormat, display: analyticsDisplayState)
+    }
+
+    private var analyticsDisplayState: AppAnalytics.DisplayState {
+        .init(dateFormat: dateFormat, includeTime: includeTime, updateDaily: updateDaily,
+              randomizeFormat: randomizeFormat, isCustomText: customText != nil)
     }
 
     private var analyticsPreferences: AppAnalytics.Preferences {
@@ -305,6 +335,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     @objc private func toggleOpenAtLogin(_ sender: NSMenuItem) {
         let service = SMAppService.mainApp
+        let operation: AppAnalytics.LoginOperation = service.status == .enabled ? .disable : .enable
         defer {
             updateLoginItemMenu()
             analytics.recordPreferencesChanged(analyticsPreferences)
@@ -325,6 +356,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
                 SMAppService.openSystemSettingsLoginItems()
             }
         } catch {
+            analytics.recordLoginFailure(error, operation: operation)
             logger.error("Could not change login item: \(error.localizedDescription, privacy: .public)")
             let alert = NSAlert()
             alert.messageText = "Could Not Change Open at Login"
@@ -334,14 +366,19 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         }
     }
 
-    private func refreshTimestamp(reason: String, allowRandomization: Bool = true) {
+    private func refreshTimestamp(reason: AppAnalytics.RefreshReason, allowRandomization: Bool = true) {
+        let previousFormat = dateFormat
         updatedAt = Date()
         if randomizeFormat && allowRandomization {
             dateFormat = dateFormat.randomAlternative()
             UserDefaults.standard.set(dateFormat.rawValue, forKey: "dateFormat")
         }
-        renderTimestamp(reason: reason)
+        renderTimestamp(reason: reason.rawValue)
         dailyUpdateScheduler.schedule(enabled: updateDaily && customText == nil, now: updatedAt)
+        if randomizeFormat && allowRandomization {
+            analytics.recordFormatRandomized(reason: reason, previousFormat: previousFormat, display: analyticsDisplayState)
+        }
+        analytics.recordTimestampRefresh(reason: reason, previousFormat: previousFormat, display: analyticsDisplayState)
     }
 
     private func renderTimestamp(reason: String) {
@@ -411,11 +448,14 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         }
     }
 
-    @objc private func didWake() { refreshTimestamp(reason: "wake") }
+    @objc private func didWake() {
+        refreshTimestamp(reason: .wake)
+        analytics.recordWake(preferences: analyticsPreferences, display: analyticsDisplayState)
+    }
     @objc private func willSleep() { dailyUpdateScheduler.cancel() }
     @objc private func clockChanged() {
         guard updateDaily && customText == nil else { return }
-        refreshTimestamp(reason: "clock/time-zone-changed")
+        refreshTimestamp(reason: .clockChanged)
     }
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
@@ -431,6 +471,10 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             .version: "",
             .credits: credits
         ])
+        for window in NSApp.windows where window.isVisible {
+            if let view = window.contentView, aboutLinkTracker.install(in: view) { break }
+        }
+        analytics.recordAboutOpened()
     }
 
     @objc private func showCustomText() {
@@ -453,7 +497,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         let previousTimestamp = timestamp
         if field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             clearCustomText()
-            refreshTimestamp(reason: "custom-text-cleared")
+            refreshTimestamp(reason: .customTextCleared)
         } else {
             customText = field.stringValue
             UserDefaults.standard.set(customText, forKey: "customText")
@@ -461,7 +505,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             positionArtwork()
         }
         if customText != previousText || (customText == nil && timestamp != previousTimestamp) {
-            analytics.recordTextChanged(isCustom: customText != nil)
+            analytics.recordTextChanged(display: analyticsDisplayState)
         }
     }
 
@@ -511,12 +555,8 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     @objc private func resetTimestamp() {
         let previousText = customText
-        let previousTimestamp = timestamp
         clearCustomText()
-        refreshTimestamp(reason: "reset", allowRandomization: previousText != nil)
-        if previousText != nil || timestamp != previousTimestamp {
-            analytics.recordTextChanged(isCustom: false)
-        }
+        refreshTimestamp(reason: .reset, allowRandomization: previousText != nil)
     }
     @objc private func selectTextColor(_ sender: NSMenuItem) {
         guard let mode = TextColorMode(rawValue: sender.tag) else { return }
@@ -588,4 +628,56 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
     @objc private func displaysChanged() { positionArtwork() }
     @objc private func quitApp() { NSApp.terminate(nil) }
+}
+
+/// Observe the stock About panel's fixed website link and retain AppKit's handling.
+@MainActor
+final class AboutWebsiteLinkTracker: NSObject, NSTextViewDelegate {
+    private let onClick: () -> Void
+    // Objective-C forwarding is nonisolated; AppKit invokes these hooks on the main actor.
+    nonisolated(unsafe) private weak var originalDelegate: (any NSTextViewDelegate)?
+    private static let website = URL(string: "https://onscreen.ericprice.info")!
+
+    init(onClick: @escaping () -> Void) { self.onClick = onClick }
+
+    @discardableResult
+    func install(in view: NSView) -> Bool {
+        if let textView = view as? NSTextView, let storage = textView.textStorage {
+            var containsWebsite = false
+            storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { value, _, stop in
+                if Self.url(from: value) == Self.website {
+                    containsWebsite = true
+                    stop.pointee = true
+                }
+            }
+            if containsWebsite {
+                if textView.delegate !== self {
+                    originalDelegate = textView.delegate
+                    textView.delegate = self
+                }
+                return true
+            }
+        }
+        return view.subviews.contains { install(in: $0) }
+    }
+
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+        if Self.url(from: link) == Self.website { onClick() }
+        return originalDelegate?.textView?(textView, clickedOnLink: link, at: charIndex) ?? false
+    }
+
+    override nonisolated func responds(to selector: Selector!) -> Bool {
+        if super.responds(to: selector) { return true }
+        return MainActor.assumeIsolated { originalDelegate?.responds(to: selector) ?? false }
+    }
+
+    override nonisolated func forwardingTarget(for selector: Selector!) -> Any? {
+        MainActor.preconditionIsolated()
+        return originalDelegate
+    }
+
+    private static func url(from value: Any?) -> URL? {
+        if let url = value as? URL { return url }
+        return (value as? String).flatMap(URL.init(string:))
+    }
 }
