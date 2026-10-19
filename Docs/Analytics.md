@@ -6,9 +6,9 @@ or separate Apply action. Successful `app_launched` means initialization reached
 the desktop window and menu. First observed launches are a setup proxy, not an
 onboarding-completion funnel or proof that the person looked at the artwork.
 
-The current 1.4.1/build 14 source uses PostHog as its only analytics SDK. The
-verification record at the end preserves observations from the earlier
-1.4/build 13 local test; it does not certify the new distribution build.
+On Screen 1.4.1/build 14 uses PostHog as its only analytics SDK. The current
+verification record below covers the released binary; the earlier 1.4/build 13
+local test remains a separate, dated record.
 
 ## Traffic and privacy
 
@@ -186,6 +186,33 @@ for what has actually been observed.
 > source/version, window, and sample-size caveats. Do not change settings,
 > create alerts, or take action from this read-only brief.
 
+## Current verification: 2026-10-19, 1.4.1/build 14
+
+All 15 product-event types passed real-SDK checks with intercepted transport,
+including enabled/disabled privacy and consent cases. The 38 daily-presence,
+103 date-format, 16 scheduler, 126 font/layout, and 17 configuration checks
+passed.
+
+The universal Developer ID signed archive passed notarization
+(`b9d1019a-d0eb-4f8a-85ea-43491ec9aa23`), stapler validation, and Gatekeeper
+assessment. [Version 1.4.1](https://github.com/ericprice/on-screen/releases/tag/v1.4.1)
+was published from commit `26185ee`. Its GitHub release body is empty, and the
+Sparkle feed contains no embedded or linked release notes.
+
+Live inspection confirmed `app_launched` at `12:24:21.939 UTC` and its matching
+`desktop_app_ready` log at `12:24:21.745990 UTC`. Both carried all five provenance
+fields: `analytics_environment=production`, `is_internal="true"`,
+`app_version=1.4.1`, `app_build=14`, and `analytics_schema_version="2"`. The
+product event also carried `$app_namespace=info.ericprice.on-screen`. This was
+internal testing of the production binary, rather than public-user traffic.
+
+All eight production dashboard charts completed forced-fresh queries without
+errors. Empty results are expected under the strict production/external
+filters, which exclude this internal validation traffic and unlabeled events.
+Other action paths have not all been generated live on this binary. Sprite's
+confirmation below concerns the older local build; it has not independently
+rechecked this release.
+
 ## Historical verification: 2026-10-19, 1.4/build 13
 
 These observations were recorded before the current single-SDK source change.
@@ -223,5 +250,5 @@ verification notes, matched all seven events and two informational logs,
 correctly distinguished daily process presence from engagement, and confirmed
 the development/internal/schema-2 labels and production exclusions. This
 completed the local app → PostHog → Sprite interpretation check for that build.
-The 1.4.1 release and observation of real public traffic require their own
-verification.
+It does not establish observation of real public traffic or Sprite's independent
+review of 1.4.1.
