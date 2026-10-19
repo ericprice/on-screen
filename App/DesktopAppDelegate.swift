@@ -233,6 +233,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         analytics.recordPreferencesChanged(analyticsPreferences)
     }
 
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        guard menu === dateFormatMenu else { return }
+        updateDateFormatMenu(highlightedItem: item)
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(checkForUpdates(_:)) {
             return updaterController.updater.canCheckForUpdates
@@ -298,11 +303,15 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         return .failed
     }
 
-    private func updateDateFormatMenu() {
+    private func updateDateFormatMenu(highlightedItem: NSMenuItem? = nil) {
         for item in dateFormatMenu?.items ?? [] {
             if let value = item.representedObject as? String, let format = DateDisplayFormat(rawValue: value) {
                 let preview = format.string(from: updatedAt, includeTime: includeTime)
-                item.title = "\(format.title) — \(preview)"
+                let title = NSMutableAttributedString(string: format.title)
+                title.append(NSAttributedString(string: " — \(preview)", attributes: [
+                    .foregroundColor: item === highlightedItem ? NSColor.selectedMenuItemTextColor : NSColor.secondaryLabelColor
+                ]))
+                item.attributedTitle = title
                 item.state = customText == nil && dateFormat == format ? .on : .off
             } else if item.action == #selector(toggleIncludeTime) {
                 item.state = includeTime || dateFormat.alwaysIncludesTime ? .on : .off
