@@ -6,9 +6,8 @@ or separate Apply action. Successful `app_launched` means initialization reached
 the desktop window and menu. First observed launches are a setup proxy, not an
 onboarding-completion funnel or proof that the person looked at the artwork.
 
-On Screen 1.4.1/build 14 uses PostHog as its only analytics SDK. The current
-verification record below covers the released binary; the earlier 1.4/build 13
-local test remains a separate, dated record.
+On Screen 1.4.2/build 15 uses PostHog as its only analytics SDK. Release
+validation and earlier live analytics checks are recorded separately below.
 
 ## Traffic and privacy
 
@@ -186,7 +185,21 @@ for what has actually been observed.
 > source/version, window, and sample-size caveats. Do not change settings,
 > create alerts, or take action from this read-only brief.
 
-## Current verification: 2026-10-19, 1.4.1/build 14
+## Current verification: 2026-10-19, 1.4.2/build 15
+
+The universal Developer ID signed package passed notarization
+(`a7df958b-e090-4b84-9e8a-817790767af4`), stapler validation, and Gatekeeper
+assessment. [Version 1.4.2](https://github.com/ericprice/on-screen/releases/tag/v1.4.2)
+was published from commit `d9cad84`. Its GitHub release body is empty, and the
+Sparkle feed contains no embedded or linked release notes. The uploaded assets'
+SHA-256 digests match the verified local ZIP and appcast.
+
+The 103 date-format, 16 scheduler, and 126 font/layout checks passed.
+Distribution validation confirmed production/external analytics configuration.
+The released app was installed and launched locally. Analytics behavior is
+unchanged; live telemetry was last verified on 1.4.1/build 14 as recorded below.
+
+## Historical verification: 2026-10-19, 1.4.1/build 14
 
 All 15 product-event types passed real-SDK checks with intercepted transport,
 including enabled/disabled privacy and consent cases. The 38 daily-presence,
