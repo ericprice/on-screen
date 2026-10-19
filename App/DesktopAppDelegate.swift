@@ -14,6 +14,9 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         self?.analytics.recordWebsiteClicked()
     }
     private var updatePreferenceObservations: [NSKeyValueObservation] = []
+    private var updateCycleActive = false
+    private var updateFound = false
+    private var updateDownloadCancelled = false
     private static let customTextLimit = 24
     // Resolve after the bundled font has been registered, without font fallback.
     private lazy var supportedCharacters = CTFontCopyCharacterSet(CTFontCreateWithName("ISO8601Kawara-Regular" as CFString, 100, nil))
@@ -50,6 +53,13 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private var pendingColorAnalytics = false
     private var lastReportedColor: NSColor?
     private var lastReportedColorMode: TextColorMode?
+    private lazy var runningDailyReporter = AppRunningDailyReporter(
+        enabled: { [weak self] in self?.analytics.isEnabled == true },
+        record: { [weak self] trigger in
+            guard let self else { return }
+            analytics.recordRunningDaily(preferences: analyticsPreferences, display: analyticsDisplayState, reason: trigger.rawValue)
+        }
+    )
 
     init(analytics: AppAnalytics = AppAnalytics()) {
         self.analytics = analytics
@@ -63,6 +73,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             NSApp.terminate(nil)
             return
         }
+        PostHogConfiguration.setup()
         guard let fontURL = Bundle.main.url(forResource: "ISO8601Kawara-Regular", withExtension: "otf") else {
             logger.error("Bundled font is missing")
             NSApp.terminate(nil)
@@ -98,7 +109,6 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         window.contentView = TimestampView()
         self.window = window
 
-        analytics.start()
         updaterController.startUpdater()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -185,12 +195,19 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         lastReportedColor = textColor
         lastReportedColorMode = textColorMode
         analytics.recordLaunch(preferences: analyticsPreferences, display: analyticsDisplayState)
+        runningDailyReporter.start()
         observeUpdatePreferences()
+        PostHogExportLogger.info("desktop app ready", attributes: [
+            "event": "desktop_app_ready",
+            "daily_updates_enabled": updateDaily
+        ])
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         dailyUpdateScheduler.cancel()
+        runningDailyReporter.stop()
         persistColorChanges()
+        PostHogConfiguration.flush()
     }
 
     private func registerAtLogin() {
@@ -225,11 +242,60 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     @objc private func checkForUpdates(_ sender: NSMenuItem) {
         analytics.recordUpdatesChecked()
+        PostHogExportLogger.info("manual update check requested", attributes: [
+            "event": "update_check_requested",
+            "source": "manual"
+        ])
         updaterController.checkForUpdates(sender)
     }
 
+    func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        updateCycleActive = true
+        updateFound = false
+        updateDownloadCancelled = false
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        updateFound = true
+    }
+
+    func userDidCancelDownload(_ updater: SPUUpdater) {
+        updateDownloadCancelled = true
+    }
+
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        guard updateCycleActive else { return }
+        updateCycleActive = false
+        let outcome = Self.updateOutcome(error: error, foundUpdate: updateFound, cancelled: updateDownloadCancelled)
+        analytics.recordUpdateCheckCompleted(source: updateCheck, outcome: outcome)
         if let error { analytics.recordUpdateFailure(error, check: updateCheck) }
+        updateFound = false
+        updateDownloadCancelled = false
+    }
+
+    // Sparkle finishes some dismissed or deferred cycles without an error. Only
+    // positive callbacks or bounded error codes establish a specific result.
+    static func updateOutcome(error: Error?, foundUpdate: Bool, cancelled: Bool) -> AppAnalytics.UpdateOutcome {
+        if cancelled { return .cancelled }
+        guard let error else { return foundUpdate ? .updateAvailable : .unknown }
+        var current = error as NSError
+        for _ in 0..<5 {
+            if current.domain == NSURLErrorDomain && current.code == NSURLErrorCancelled { return .cancelled }
+            if current.domain == SUSparkleErrorDomain {
+                switch current.code {
+                case Int(SUError.installationCanceledError.rawValue): return .cancelled
+                case Int(SUError.installationAuthorizeLaterError.rawValue): return foundUpdate ? .updateAvailable : .unknown
+                case Int(SUError.noUpdateError.rawValue):
+                    let reason = (current.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
+                    return reason == Int(SPUNoUpdateFoundReason.onLatestVersion.rawValue)
+                        || reason == Int(SPUNoUpdateFoundReason.onNewerThanLatestVersion.rawValue) ? .upToDate : .unknown
+                default: break
+                }
+            }
+            guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
+            current = underlying
+        }
+        return .failed
     }
 
     private func updateDateFormatMenu() {
@@ -255,30 +321,33 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         clearCustomText()
         renderTimestamp(reason: "date-format-changed")
         if analyticsDisplayState != previous {
-            analytics.recordDisplaySettingChanged(.dateFormat, display: analyticsDisplayState)
+            analytics.recordDisplaySettingChanged(.dateFormat, previous: previous, display: analyticsDisplayState)
         }
     }
 
     @objc private func toggleIncludeTime() {
         guard !dateFormat.alwaysIncludesTime else { return }
+        let previous = analyticsDisplayState
         includeTime.toggle()
         UserDefaults.standard.set(includeTime, forKey: "includeTime")
         clearCustomText()
         renderTimestamp(reason: "include-time-changed")
-        analytics.recordDisplaySettingChanged(.includeTime, display: analyticsDisplayState)
+        analytics.recordDisplaySettingChanged(.includeTime, previous: previous, display: analyticsDisplayState)
     }
 
     @objc private func toggleUpdateDaily(_ sender: NSMenuItem) {
         guard customText == nil else { return }
+        let previous = analyticsDisplayState
         updateDaily.toggle()
         UserDefaults.standard.set(updateDaily, forKey: "updateDaily")
         sender.state = updateDaily ? .on : .off
         dailyUpdateScheduler.schedule(enabled: updateDaily)
         positionArtwork()
-        analytics.recordDisplaySettingChanged(.updateDaily, display: analyticsDisplayState)
+        analytics.recordDisplaySettingChanged(.updateDaily, previous: previous, display: analyticsDisplayState)
     }
 
     @objc private func toggleRandomizeFormat() {
+        let previous = analyticsDisplayState
         randomizeFormat.toggle()
         UserDefaults.standard.set(randomizeFormat, forKey: "randomizeFormat")
         if randomizeFormat {
@@ -288,7 +357,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             updateDateFormatMenu()
             positionArtwork()
         }
-        analytics.recordDisplaySettingChanged(.randomizeFormat, display: analyticsDisplayState)
+        analytics.recordDisplaySettingChanged(.randomizeFormat, previous: previous, display: analyticsDisplayState)
     }
 
     private var analyticsDisplayState: AppAnalytics.DisplayState {
@@ -449,11 +518,16 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     @objc private func didWake() {
+        runningDailyReporter.resume()
         refreshTimestamp(reason: .wake)
         analytics.recordWake(preferences: analyticsPreferences, display: analyticsDisplayState)
     }
-    @objc private func willSleep() { dailyUpdateScheduler.cancel() }
+    @objc private func willSleep() {
+        dailyUpdateScheduler.cancel()
+        runningDailyReporter.suspend()
+    }
     @objc private func clockChanged() {
+        runningDailyReporter.clockChanged()
         guard updateDaily && customText == nil else { return }
         refreshTimestamp(reason: .clockChanged)
     }

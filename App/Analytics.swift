@@ -1,7 +1,6 @@
 import AppKit
 import ServiceManagement
 import Sparkle
-import TelemetryDeck
 
 /// Only these typed actions and fixed fields can enter analytics; custom text never does.
 @MainActor
@@ -9,11 +8,15 @@ final class AppAnalytics {
     enum ColorMode: String { case white, black, custom }
     enum LoginStatus: String { case enabled, disabled, requiresApproval, notFound, unknown }
     enum LoginOperation: String { case automaticRegistration, enable, disable }
+    enum UpdateOutcome: String {
+        case upToDate = "up_to_date"
+        case updateAvailable = "update_available"
+        case cancelled, failed, unknown
+    }
     enum DisplaySetting: String {
-        case dateFormat = "DateFormat.changed"
-        case includeTime = "IncludeTime.changed"
-        case updateDaily = "DailyUpdates.changed"
-        case randomizeFormat = "Randomization.changed"
+        case dateFormat, includeTime, updateDaily, randomizeFormat
+
+        var property: String { rawValue }
     }
     enum RefreshReason: String {
         case launch = "launch/login", midnight, wake, reset
@@ -58,56 +61,40 @@ final class AppAnalytics {
     }
 
     private enum Event: String {
-        case launched = "App.launched"
-        case textChanged = "Text.changed"
-        case colorChanged = "Color.changed"
-        case preferencesChanged = "Preferences.changed"
-        case woke = "App.woke"
-        case timestampRefreshed = "Timestamp.refreshed"
-        case aboutOpened = "About.opened"
-        case websiteClicked = "Website.clicked"
-        case updatesChecked = "Updates.checked"
-        case loginFailed = "OpenAtLogin.failed"
-        case updateFailed = "Updates.failed"
-        case formatRandomized = "DateFormat.randomized"
+        case launched = "app_launched"
+        case runningDaily = "app_running_daily"
+        case textChanged = "custom_text_changed"
+        case colorChanged = "text_color_changed"
+        case preferencesChanged = "preferences_changed"
+        case displaySettingChanged = "display_setting_changed"
+        case woke = "app_woke"
+        case timestampRefreshed = "timestamp_refreshed"
+        case aboutOpened = "about_opened"
+        case websiteClicked = "website_clicked"
+        case updatesChecked = "updates_checked"
+        case updateCompleted = "update_check_completed"
+        case loginFailed = "open_at_login_failed"
+        case updateFailed = "update_check_failed"
+        case formatRandomized = "date_format_randomized"
     }
 
     private let defaults: UserDefaults
-    private let sessionConfiguration: URLSessionConfiguration
-    private let transmitInterval: TimeInterval
-    private var configuration: TelemetryDeck.Config?
+    private let postHogCapture: (String, [String: String]) -> Void
+    private let contextProperties: () -> [String: String]
     private var lastPreferences: Preferences?
 
-    init(defaults: UserDefaults = .standard, sessionConfiguration: URLSessionConfiguration = .ephemeral, transmitInterval: TimeInterval = 60) {
+    init(
+        defaults: UserDefaults = .standard,
+        postHogCapture: @escaping (String, [String: String]) -> Void = { PostHogConfiguration.capture($0, properties: $1) },
+        contextProperties: @escaping () -> [String: String] = { AnalyticsContext.current.properties }
+    ) {
         self.defaults = defaults
-        self.sessionConfiguration = sessionConfiguration
-        self.transmitInterval = transmitInterval
+        self.postHogCapture = postHogCapture
+        self.contextProperties = contextProperties
     }
 
     var isEnabled: Bool {
         defaults.object(forKey: "shareUsageStatistics") == nil || defaults.bool(forKey: "shareUsageStatistics")
-    }
-
-    func start() {
-        guard isEnabled, configuration == nil else { return }
-        let config = TelemetryDeck.Config(
-            appID: "56092A55-E45A-41D9-A104-36566909C5BD",
-            namespace: "info.ericprice"
-        )
-        config.defaultSignalPrefix = "OnScreen."
-        config.defaultParameterPrefix = "OnScreen."
-        // This desktop utility needs action counts, without foreground/session events
-        // or the SDK's once-per-second session-duration persistence.
-        config.sendNewSessionBeganSignal = false
-        config.sessionStatsEnabled = false
-        config.transmitInterval = transmitInterval
-        config.cacheLimit = 100
-        if ProcessInfo.processInfo.environment["ON_SCREEN_ANALYTICS_TEST_MODE"] == "1" {
-            config.testMode = true
-        }
-        config.urlSession = makeSession()
-        configuration = config
-        TelemetryDeck.initialize(config: config)
     }
 
     func recordLaunch(preferences: Preferences, display: DisplayState) {
@@ -115,12 +102,25 @@ final class AppAnalytics {
         send(.launched, parameters: preferences.parameters.merging(display.parameters) { _, new in new })
     }
 
+    func recordRunningDaily(preferences: Preferences, display: DisplayState, reason: String) {
+        guard ["launch", "wake", "daily_boundary", "clock_change", "consent_enabled"].contains(reason) else { return }
+        let parameters = preferences.parameters.merging(display.parameters) { _, new in new }
+            .merging(["reason": reason]) { _, new in new }
+        send(.runningDaily, parameters: parameters)
+    }
+
     func recordTextChanged(display: DisplayState) {
         send(.textChanged, parameters: display.parameters)
     }
 
-    func recordDisplaySettingChanged(_ setting: DisplaySetting, display: DisplayState) {
-        send(setting.rawValue, parameters: display.parameters)
+    func recordDisplaySettingChanged(_ setting: DisplaySetting, previous: DisplayState, display: DisplayState) {
+        guard previous != display else { return }
+        send(.displaySettingChanged, parameters: display.parameters.merging([
+            "changedSetting": setting.property,
+            "previousValue": previous.parameters[setting.property]!,
+            "value": display.parameters[setting.property]!,
+            "previousMode": previous.parameters["mode"]!
+        ]) { _, new in new })
     }
 
     func recordFormatRandomized(reason: RefreshReason, previousFormat: DateDisplayFormat, display: DisplayState) {
@@ -148,6 +148,9 @@ final class AppAnalytics {
     func recordAboutOpened() { send(.aboutOpened) }
     func recordWebsiteClicked() { send(.websiteClicked, parameters: ["source": "about"]) }
     func recordUpdatesChecked() { send(.updatesChecked) }
+    func recordUpdateCheckCompleted(source: SPUUpdateCheck, outcome: UpdateOutcome) {
+        send(.updateCompleted, parameters: ["source": updateSource(source), "outcome": outcome.rawValue])
+    }
 
     func recordColorChanged(color: NSColor, mode: ColorMode) {
         guard let color = color.usingColorSpace(.sRGB) else { return }
@@ -230,29 +233,29 @@ final class AppAnalytics {
         } else {
             category = "other"
         }
-        let source: String
+        send(.updateFailed, parameters: ["source": updateSource(check), "category": category])
+    }
+
+    private func updateSource(_ check: SPUUpdateCheck) -> String {
         switch check {
-        case .updates: source = "manual"
-        case .updatesInBackground: source = "automatic"
-        case .updateInformation: source = "information"
-        @unknown default: source = "unknown"
+        case .updates: "manual"
+        case .updatesInBackground: "automatic"
+        case .updateInformation: "information"
+        @unknown default: "unknown"
         }
-        send(.updateFailed, parameters: ["source": source, "category": category])
     }
 
     private func send(_ event: Event, parameters: [String: String] = [:]) {
-        send(event.rawValue, parameters: parameters)
+        guard isEnabled else { return }
+        let parameters = parameters.merging(contextProperties()) { _, context in context }
+        postHogCapture(event.rawValue, parameters)
+        if event == .updateFailed {
+            PostHogExportLogger.error("update check failed", attributes: [
+                "event": "update_check_failed",
+                "source": parameters["source"] ?? "unknown",
+                "category": parameters["category"] ?? "other"
+            ])
+        }
     }
 
-    private func send(_ name: String, parameters: [String: String]) {
-        guard isEnabled, configuration != nil else { return }
-        TelemetryDeck.signal(name, parameters: parameters)
-    }
-
-    private func makeSession() -> URLSession {
-        sessionConfiguration.httpShouldSetCookies = false
-        sessionConfiguration.httpCookieStorage = nil
-        sessionConfiguration.urlCredentialStorage = nil
-        return URLSession(configuration: sessionConfiguration)
-    }
 }

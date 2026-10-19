@@ -24,6 +24,7 @@ assert "SPARKLE LICENSES AND NOTICES" in (resources / "LICENSE").read_text()
 for name in ["Sparkle.txt", "THIRD-PARTY-NOTICES.md", "Licenses.txt"]:
     assert not (resources / name).exists(), name
 PYTHON
+python3 "$ROOT_DIR/script/configure_posthog.py" --validate-distribution-app "$APP"
 codesign --verify --deep --strict "$APP"
 APP_ARCHS="$(lipo -archs "$APP/Contents/MacOS/On Screen")"
 [[ " $APP_ARCHS " == *" arm64 "* && " $APP_ARCHS " == *" x86_64 "* ]] || { echo "Missing universal architectures: $APP_ARCHS" >&2; exit 1; }

@@ -12,7 +12,7 @@ else
   ARCHIVE="$ROOT_DIR/build/Distribution.xcarchive"
   EXPORT_DIR="$ROOT_DIR/build/Distribution-export"
   # Archive/export signs Sparkle's nested helper tools for Developer ID distribution.
-  if ! xcodebuild -project "$ROOT_DIR/On Screen.xcodeproj" -scheme "On Screen" -configuration Release -archivePath "$ARCHIVE" ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO ALWAYS_SEARCH_USER_PATHS=NO ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:?Set DEVELOPMENT_TEAM to your Apple Developer team ID}" CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" archive > "$ROOT_DIR/build/distribution-build.log" 2>&1; then
+  if ! xcodebuild -project "$ROOT_DIR/On Screen.xcodeproj" -scheme "On Screen" -configuration Release -archivePath "$ARCHIVE" ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO ALWAYS_SEARCH_USER_PATHS=NO ENABLE_HARDENED_RUNTIME=YES CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:?Set DEVELOPMENT_TEAM to your Apple Developer team ID}" CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" ON_SCREEN_ANALYTICS_ENVIRONMENT=production ON_SCREEN_ANALYTICS_INTERNAL=false archive > "$ROOT_DIR/build/distribution-build.log" 2>&1; then
     tail -60 "$ROOT_DIR/build/distribution-build.log"
     exit 1
   fi
@@ -29,6 +29,7 @@ PYTHON
   fi
   BUILT_APP="$EXPORT_DIR/On Screen.app"
 fi
+python3 "$ROOT_DIR/script/configure_posthog.py" --validate-distribution-app "$BUILT_APP"
 codesign --verify --deep --strict "$BUILT_APP"
 APP_ARCHS="$(lipo -archs "$BUILT_APP/Contents/MacOS/On Screen")"
 [[ " $APP_ARCHS " == *" arm64 "* && " $APP_ARCHS " == *" x86_64 "* ]] || { echo "Missing universal architectures: $APP_ARCHS" >&2; exit 1; }

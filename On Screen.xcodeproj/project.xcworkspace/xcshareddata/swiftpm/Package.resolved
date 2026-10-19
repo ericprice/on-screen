@@ -1,6 +1,15 @@
 {
-  "originHash" : "7d8bf286e0cd67d2fbd2f325823a37f67611c2ebc90f04fcead0ba40e9e93595",
+  "originHash" : "4ebb72022eb78fb0a08547849e476968e58b1b83fe73b09e9ff87d734ae0ab41",
   "pins" : [
+    {
+      "identity" : "posthog-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PostHog/posthog-ios.git",
+      "state" : {
+        "revision" : "835f624c2618d72d73650d0ed0029325232f5b0a",
+        "version" : "3.92.0"
+      }
+    },
     {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
@@ -8,15 +17,6 @@
       "state" : {
         "revision" : "eef1a539a373c1f1a320624b1130fc5de7b2e100",
         "version" : "2.10.0"
-      }
-    },
-    {
-      "identity" : "swiftsdk",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/TelemetryDeck/SwiftSDK",
-      "state" : {
-        "revision" : "58f436299d3f6710bcedc18aff26480aaf1879fc",
-        "version" : "2.14.2"
       }
     }
   ],

@@ -5,7 +5,10 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 MODE="${1:-run}"
 case "$MODE" in run|--verify|--logs|--build-only) ;; *) echo "usage: $0 [--build-only|--verify|--logs]" >&2; exit 2 ;; esac
 mkdir -p "$ROOT_DIR/build"
-if ! xcodebuild -project "$ROOT_DIR/On Screen.xcodeproj" -scheme "On Screen" -configuration Release SYMROOT="$ROOT_DIR/build/App" ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES ALWAYS_SEARCH_USER_PATHS=NO build > "$ROOT_DIR/build/app-build.log" 2>&1; then
+# Release optimization does not make a local build production analytics traffic.
+ANALYTICS_ENVIRONMENT="${ON_SCREEN_ANALYTICS_ENVIRONMENT:-development}"
+ANALYTICS_INTERNAL="${ON_SCREEN_ANALYTICS_INTERNAL:-true}"
+if ! xcodebuild -project "$ROOT_DIR/On Screen.xcodeproj" -scheme "On Screen" -configuration Release SYMROOT="$ROOT_DIR/build/App" ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES ALWAYS_SEARCH_USER_PATHS=NO ON_SCREEN_ANALYTICS_ENVIRONMENT="$ANALYTICS_ENVIRONMENT" ON_SCREEN_ANALYTICS_INTERNAL="$ANALYTICS_INTERNAL" build > "$ROOT_DIR/build/app-build.log" 2>&1; then
   tail -60 "$ROOT_DIR/build/app-build.log"
   exit 1
 fi

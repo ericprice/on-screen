@@ -2,3 +2,7 @@ build/
 dist/
 .DS_Store
 .codex/
+.env
+.env.*
+!.env.example
+__pycache__/
