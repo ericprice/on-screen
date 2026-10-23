@@ -199,14 +199,30 @@ for what has actually been observed.
 
 ## Current verification: 2026-10-23, 1.4.3/build 16
 
-Local checks passed for the date/custom-text fixes, cached previews, emoji
-fitting, background persistence, consent, and release validation. The four
-isolated analytics suites passed with intercepted transport. The 103 date-format,
-18 scheduler, 136 font/layout, 38 daily-presence, and 14 distribution checks
-passed. The Release build succeeded. Distribution and public-surface verification
-will be recorded after the signed package is published.
+[Version 1.4.3](https://github.com/ericprice/on-screen/releases/tag/v1.4.3)
+was published from commit `e953d58` with the release notes
+“Bug fixes and performance improvements” in GitHub and the signed Sparkle feed.
+The universal Developer ID package passed notarization
+(`7b717bf8-a3bb-4bfc-9427-d81abb9accdf`), stapler validation, signature checks,
+and Gatekeeper assessment. The published ZIP and latest Sparkle feed matched
+the verified local assets byte-for-byte.
 
-Release notes: Bug fixes and performance improvements
+The website shows Download (v1.4.3). Both ericprice.info and
+onscreen.ericprice.info redirect the download URL, with and without a trailing
+slash, to the 1.4.3 ZIP. The installed app's binary and Info.plist match that
+ZIP and its signature, ticket, and Gatekeeper checks pass. A read-only Sparkle
+probe with isolated preferences fetched the live feed and recognized installed
+1.4.3/build 16 as current, with the correct archive and release notes.
+
+The four isolated analytics suites passed with intercepted transport, including
+production setup, consent changes, background persistence, and termination
+bounds. The 103 date-format, 18 scheduler, 136 font/layout, 38 daily-presence,
+and 14 distribution checks passed. Local Release compilation and
+[GitHub CI](https://github.com/ericprice/on-screen/actions/runs/40013957840)
+succeeded. These checks do not establish fresh production telemetry delivery.
+
+ZIP SHA-256: `80a4790fda8c8576eebd5f65f99674d588202b6660f0a4a8a6caffc8ed64ba67`.
+Appcast SHA-256: `f442503106c8c252ce0ea547267b8512ef26879f489cbc009d0da2c8f8c35bb7`.
 
 ## Historical verification: 2026-10-19, 1.4.2/build 15
 
