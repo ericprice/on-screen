@@ -729,23 +729,39 @@ enum AnalyticsChecks {
             panel.setAction(nil)
             panel.orderOut(nil)
         }
-        for color in [NSColor.red, .green, NSColor(srgbRed: 1, green: 0.5, blue: 0, alpha: 1)] {
+        func waitForColorPersistence() async throws {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while value("colorPersistenceTimer", in: delegate, as: Timer.self) != nil,
+                  ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            try check(value("colorPersistenceTimer", in: delegate, as: Timer.self) == nil,
+                      "Color persistence timed out; captured colors: \(colors)")
+        }
+        func persistedColorMatches(_ expected: [Double]) -> Bool {
+            guard let actual = defaults.array(forKey: "customColor") as? [Double], actual.count == expected.count else { return false }
+            return zip(actual, expected).allSatisfy { abs($0 - $1) < 0.000_001 }
+        }
+        // Use exact 8-bit colors, away from half-channel rounding boundaries.
+        let orange = [1.0, 128.0 / 255, 0.0]
+        for color in [NSColor.red, .green, NSColor(srgbRed: orange[0], green: orange[1], blue: orange[2], alpha: 1)] {
             panel.color = color
             delegate.perform(NSSelectorFromString("customColorChanged:"), with: panel)
         }
         try check(colors.isEmpty, "Color drag emitted before the debounce interval")
-        try await Task.sleep(for: .milliseconds(400))
+        try await waitForColorPersistence()
         try check(colors.count == 1 && colors.last?["color"] == "#FF8000",
-                  "Color drag did not emit exactly its final value")
-        try check(defaults.array(forKey: "customColor") as? [Double] == [1, 0.5, 0], "Debounced color was not persisted")
+                  "Color drag did not emit exactly its final value: \(colors)")
+        try check(persistedColorMatches(orange), "Debounced color was not persisted")
         delegate.perform(NSSelectorFromString("customColorChanged:"), with: panel)
-        try await Task.sleep(for: .milliseconds(350))
+        try await waitForColorPersistence()
         try check(colors.count == 1, "Unchanged color emitted a duplicate event")
-        panel.color = NSColor(srgbRed: 0, green: 0.25, blue: 1, alpha: 1)
+        let blue = [0.0, 64.0 / 255, 1.0]
+        panel.color = NSColor(srgbRed: blue[0], green: blue[1], blue: blue[2], alpha: 1)
         delegate.perform(NSSelectorFromString("customColorChanged:"), with: panel)
         delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
         try check(colors.count == 2 && colors.last?["color"] == "#0040FF" &&
-                  defaults.array(forKey: "customColor") as? [Double] == [0, 0.25, 1],
+                  persistedColorMatches(blue),
                   "Termination lost a pending color change")
 
         let first = Data("{\"sequence\":1}".utf8)

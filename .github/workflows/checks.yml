@@ -32,14 +32,28 @@ jobs:
       - name: Build and run isolated checks
         # The native harness requires the hosted macOS GUI session. All analytics
         # transports are intercepted, and release commands use mocked tools.
-        run: ./script/check_all.sh
+        run: |
+          if ./script/check_all.sh; then
+            exit 0
+          fi
+          # Apple's asset runtime can crash on hosted runners. Retry only that
+          # internal tool failure once; test and ordinary compiler errors fail.
+          if [[ -f build/app-build.log ]] &&
+             grep -Fq 'IBPlatformToolFailureException' build/app-build.log &&
+             grep -Fq 'AssetCatalogAgent-AssetRuntime' build/app-build.log; then
+            cp build/app-build.log build/app-build-first-attempt.log
+            echo 'Retrying build after an Apple asset-runtime crash.'
+            ./script/build_and_run.sh --build-only
+          else
+            exit 1
+          fi
       - name: Preserve diagnostic logs
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: check-logs
           path: |
-            build/app-build.log
+            build/app-build*.log
             build/analytics-checks/*.log
             build/analytics-checks/*.txt
             build/analytics-checks/*.stdout
