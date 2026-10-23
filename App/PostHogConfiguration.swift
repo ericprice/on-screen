@@ -30,9 +30,17 @@ enum PostHogConfiguration {
     private static var isConfigured = false
     private static var isStarting = false
     private static var preferenceObserver: NSObjectProtocol?
+    private static var sessionConfiguration = URLSessionConfiguration.ephemeral
+    private static var captureQueue = DispatchQueue(label: "info.ericprice.on-screen.analytics", qos: .utility)
     static var isEnabled: Bool { usageStatisticsEnabled(in: .standard) }
 
-    static func setup() {
+    /// Isolated checks can inject transport and a serial work queue to exercise this
+    /// exact startup/consent/drain path. Retain them through deferred opt-in setup.
+    static func setup(sessionConfiguration: URLSessionConfiguration? = nil, workQueue: DispatchQueue? = nil) {
+        if let sessionConfiguration, !isConfigured, !isStarting {
+            self.sessionConfiguration = sessionConfiguration.copy() as! URLSessionConfiguration
+        }
+        if let workQueue, !isConfigured, !isStarting { captureQueue = workQueue }
         if preferenceObserver == nil {
             preferenceObserver = NotificationCenter.default.addObserver(
                 forName: UserDefaults.didChangeNotification, object: nil, queue: .main
@@ -42,7 +50,7 @@ enum PostHogConfiguration {
         }
         // Even setup requests remote configuration, so defer it entirely while opted out.
         guard isEnabled else {
-            if isConfigured { PostHogSDK.shared.optOut() }
+            if isConfigured { synchronizeSDKConsent() }
             return
         }
         guard !isConfigured, !isStarting else { return }
@@ -61,14 +69,17 @@ enum PostHogConfiguration {
         // SDK persistence can synchronously notify UserDefaults observers during setup.
         isStarting = true
         defer { isStarting = false }
-        PostHogSDK.shared.setup(makeConfig(projectToken: projectToken, host: host))
+        PostHogSDK.shared.setup(makeConfig(projectToken: projectToken, host: host,
+                                          sessionConfiguration: self.sessionConfiguration))
         isConfigured = true
         // The app preference owns consent, including after a previous SDK opt-out.
-        PostHogSDK.shared.optIn()
+        synchronizeSDKConsent()
         logger.info("PostHog initialized from app configuration")
     }
 
-    static func makeConfig(
+    // SDK hooks execute on the capture caller's thread, including our utility queue.
+    // Build them outside MainActor so nested filtering closures inherit no executor.
+    nonisolated static func makeConfig(
         projectToken: String, host: String, defaults: UserDefaults = .standard,
         sessionConfiguration: URLSessionConfiguration = .ephemeral
     ) -> PostHogConfig {
@@ -89,7 +100,9 @@ enum PostHogConfiguration {
         config.errorTrackingConfig.autoCapture = false
         config.errorTrackingConfig.exceptionSteps.enabled = false
         config.maxQueueSize = 100
-        config.flushIntervalSeconds = 60
+        // This mostly idle utility does not need minute-by-minute uploads. The SDK
+        // also uses this interval for its empty replay queue, reducing all idle ticks.
+        config.flushIntervalSeconds = 300
         let session = sessionConfiguration.copy() as! URLSessionConfiguration
         session.httpShouldSetCookies = false
         session.httpCookieStorage = nil
@@ -108,7 +121,7 @@ enum PostHogConfiguration {
         }
         config.logs.serviceName = "on-screen-macos"
         config.logs.maxBufferSize = 100
-        config.logs.flushIntervalSeconds = 60
+        config.logs.flushIntervalSeconds = 300
         config.logs.setBeforeSend { record in
             guard usageStatisticsEnabled(in: defaults),
                   let event = record.attributes["event"] as? String,
@@ -127,33 +140,72 @@ enum PostHogConfiguration {
     static func capture(_ event: String, properties: [String: String]) {
         synchronizeUsageStatisticsPreference()
         guard isEnabled, isConfigured else { return }
-        PostHogSDK.shared.capture(event, properties: properties)
+        captureQueue.async {
+            guard usageStatisticsEnabled(in: .standard) else { return }
+            PostHogSDK.shared.capture(event, properties: properties)
+        }
     }
 
     static func flush() {
         synchronizeUsageStatisticsPreference()
         guard isEnabled, isConfigured else { return }
-        PostHogSDK.shared.flush()
+        captureQueue.async {
+            guard usageStatisticsEnabled(in: .standard) else { return }
+            PostHogSDK.shared.flush()
+        }
+    }
+
+    /// Wait only for queued capture writes, never for network delivery. The SDK's
+    /// durable queue retains undelivered events for the next launch.
+    @discardableResult
+    static func flushForTermination(timeout: TimeInterval = 1) -> Bool {
+        synchronizeUsageStatisticsPreference()
+        guard isConfigured else { return true }
+        let drained = DispatchSemaphore(value: 0)
+        captureQueue.async {
+            if usageStatisticsEnabled(in: .standard) { PostHogSDK.shared.flush() }
+            drained.signal()
+        }
+        return drained.wait(timeout: .now() + max(0, timeout)) == .success
     }
 
     static func synchronizeUsageStatisticsPreference() {
         // The app delegate owns initialization; isolated checks can use their own SDK.
         guard preferenceObserver != nil, !isStarting else { return }
         if !isEnabled {
-            if isConfigured { PostHogSDK.shared.optOut() }
+            if isConfigured { synchronizeSDKConsent() }
         } else if !isConfigured {
             setup()
-        } else if PostHogSDK.shared.isOptOut() {
-            PostHogSDK.shared.optIn()
+        } else {
+            synchronizeSDKConsent()
+        }
+    }
+
+    private static func synchronizeSDKConsent() {
+        captureQueue.async {
+            if usageStatisticsEnabled(in: .standard) {
+                PostHogSDK.shared.optIn()
+            } else {
+                PostHogSDK.shared.optOut()
+            }
         }
     }
 
     fileprivate static func log(_ event: String, attributes: [String: Any], isError: Bool) {
         synchronizeUsageStatisticsPreference()
         guard isEnabled, isConfigured, let message = logMessages[event] else { return }
-        var properties = attributes
-        properties["event"] = event
-        PostHogSDK.shared.captureLog(message, level: isError ? .error : .info, attributes: properties)
+        // Copy only the supported scalar fields across the concurrency boundary.
+        let source = attributes["source"] as? String
+        let category = attributes["category"] as? String
+        let dailyUpdates = attributes["daily_updates_enabled"] as? Bool
+        captureQueue.async {
+            guard usageStatisticsEnabled(in: .standard) else { return }
+            var properties: [String: Any] = ["event": event]
+            if let source { properties["source"] = source }
+            if let category { properties["category"] = category }
+            if let dailyUpdates { properties["daily_updates_enabled"] = dailyUpdates }
+            PostHogSDK.shared.captureLog(message, level: isError ? .error : .info, attributes: properties)
+        }
     }
 
     nonisolated private static func usageStatisticsEnabled(in defaults: UserDefaults) -> Bool {

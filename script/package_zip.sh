@@ -29,22 +29,25 @@ PYTHON
   fi
   BUILT_APP="$EXPORT_DIR/On Screen.app"
 fi
+python3 "$ROOT_DIR/script/validate_release_app.py" "$BUILT_APP"
 python3 "$ROOT_DIR/script/configure_posthog.py" --validate-distribution-app "$BUILT_APP"
 codesign --verify --deep --strict "$BUILT_APP"
 APP_ARCHS="$(lipo -archs "$BUILT_APP/Contents/MacOS/On Screen")"
 [[ " $APP_ARCHS " == *" arm64 "* && " $APP_ARCHS " == *" x86_64 "* ]] || { echo "Missing universal architectures: $APP_ARCHS" >&2; exit 1; }
-for RESOURCE in LICENSE README.md CC-BY-SA-4.0.txt; do
-  [[ -f "$BUILT_APP/Contents/Resources/$RESOURCE" ]] || { echo "Missing bundled license resource: $RESOURCE" >&2; exit 1; }
-done
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUILT_APP/Contents/Info.plist")"
 ZIP="$ROOT_DIR/dist/On-Screen-$VERSION.zip"
+STAGING_DIR="$(mktemp -d "$ROOT_DIR/build/package-zip.XXXXXX")"
+trap 'rm -rf "$STAGING_DIR"' EXIT
+STAGED_ZIP="$STAGING_DIR/$(basename "$ZIP")"
+# Preserve the current release until the replacement has been fully prepared.
+ditto -c -k --sequesterRsrc --keepParent "$BUILT_APP" "$STAGED_ZIP"
+if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+  "$ROOT_DIR/script/notarize_zip.sh" "$STAGED_ZIP"
+fi
 if [[ -f "$ZIP" ]]; then
   PREVIOUS_DIR="$(mktemp -d "$ROOT_DIR/build/previous-zip.XXXXXX")"
-  mv "$ZIP" "$PREVIOUS_DIR/previous.zip"
+  # Copy the backup so a failed final rename leaves the current release in place.
+  ditto "$ZIP" "$PREVIOUS_DIR/previous.zip"
 fi
-# Preserve the bundle's permissions, symlinks, and macOS metadata.
-ditto -c -k --sequesterRsrc --keepParent "$BUILT_APP" "$ZIP"
-if [[ -n "${NOTARY_PROFILE:-}" ]]; then
-  "$ROOT_DIR/script/notarize_zip.sh"
-fi
+mv "$STAGED_ZIP" "$ZIP"
 printf 'Created: %s\n' "$ZIP"

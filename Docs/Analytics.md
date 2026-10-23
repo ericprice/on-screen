@@ -6,7 +6,7 @@ or separate Apply action. Successful `app_launched` means initialization reached
 the desktop window and menu. First observed launches are a setup proxy, not an
 onboarding-completion funnel or proof that the person looked at the artwork.
 
-On Screen 1.4.2/build 15 uses PostHog as its only analytics SDK. Release
+On Screen 1.4.3/build 16 uses PostHog as its only analytics SDK. Release
 validation and earlier live analytics checks are recorded separately below.
 
 ## Traffic and privacy
@@ -40,6 +40,15 @@ Runtime opt-out blocks capture and queued transport; requests already in flight
 can finish. Previously enabled events can remain queued and resume on opt-in.
 The existing unset-preference default remains unchanged. Local checks use an
 isolated preferences/cache home and intercepted SDK transports.
+
+Event and fixed-log persistence runs in order on a utility queue so SDK disk
+writes do not block menu actions. Consent is checked again before each queued
+capture and before transport. Normal SDK batching uses five-minute intervals
+for events, replay's empty queue, and logs. The public SDK still owns those
+timers; this reduces their frequency without changing or forking the dependency.
+On termination the app waits at most one second for queued persistence and
+starts a flush. This does not wait for network delivery; undelivered records
+remain in the SDK's durable queue for a later launch.
 
 Custom text, text length, screen contents, file paths, feed URLs, raw errors,
 credentials, and personal content never enter event payloads. PostHog strips
@@ -144,6 +153,9 @@ the corresponding product-event counts.
    text reach PostHog. Enabled/disabled runs have separate
    temporary homes. Checks assert exact event multisets, safe old/new values,
    completion deduplication, debouncing, provenance, and no opted-out requests.
+   Separate wrapper modes exercise production initialization, startup opt-out,
+   observer-driven opt-in/out, all three exported logs, gzip payloads, FIFO
+   background persistence, and the bounded termination drain.
 2. Run `./script/build_and_run.sh --verify` for a development/internal local
    build. It replaces the local app with a recoverable backup; it publishes no
    release. Retain the existing analytics preference.
@@ -153,7 +165,7 @@ the corresponding product-event counts.
    your preferred settings afterward (restoration is another actual change).
 4. Choose Check for Updates once and dismiss its result dialog. Expect one
    `updates_checked`, one fixed request log, then one completion if Sparkle
-   starts and finishes a cycle. Allow roughly 60 seconds for normal batching.
+   starts and finishes a cycle. Allow up to five minutes for normal batching.
 5. Inspect internal/schema-2 traffic in PostHog. Daily presence should remain
    one for the current UTC day even across relaunch/wake. Do not force fake
    errors, alter your clock, or reset production analytics storage to test it;
@@ -185,7 +197,18 @@ for what has actually been observed.
 > source/version, window, and sample-size caveats. Do not change settings,
 > create alerts, or take action from this read-only brief.
 
-## Current verification: 2026-10-19, 1.4.2/build 15
+## Current verification: 2026-10-23, 1.4.3/build 16
+
+Local checks passed for the date/custom-text fixes, cached previews, emoji
+fitting, background persistence, consent, and release validation. The four
+isolated analytics suites passed with intercepted transport. The 103 date-format,
+18 scheduler, 136 font/layout, 38 daily-presence, and 14 distribution checks
+passed. The Release build succeeded. Distribution and public-surface verification
+will be recorded after the signed package is published.
+
+Release notes: Bug fixes and performance improvements
+
+## Historical verification: 2026-10-19, 1.4.2/build 15
 
 The universal Developer ID signed package passed notarization
 (`a7df958b-e090-4b84-9e8a-817790767af4`), stapler validation, and Gatekeeper

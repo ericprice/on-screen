@@ -1,5 +1,6 @@
 import Foundation
 import CoreText
+import AppKit
 
 @main
 enum DateDisplayFormatChecks {
@@ -112,6 +113,9 @@ enum DateDisplayFormatChecks {
         expectMidnight(after: "2026-11-01T04:00:00Z", "2026-11-02T05:00:00Z", zone: ny)
         expectMidnight(after: "2026-10-17T18:14:59Z", "2026-10-17T18:15:00Z", zone: TimeZone(identifier: "Asia/Kathmandu")!)
         expectMidnight(after: "2026-10-17T21:09:15Z", "2026-10-18T04:00:00Z", zone: ny)
+        // Midnight can skip an entire calendar date or follow a half-hour DST change.
+        expectMidnight(after: "2011-12-30T09:59:59Z", "2011-12-30T10:00:00Z", zone: TimeZone(identifier: "Pacific/Apia")!)
+        expectMidnight(after: "2026-10-03T13:30:00Z", "2026-10-04T13:00:00Z", zone: TimeZone(identifier: "Australia/Lord_Howe")!)
 
         var updates = 0
         let scheduler = DailyUpdateScheduler { updates += 1 }
@@ -169,6 +173,56 @@ enum DateDisplayFormatChecks {
                 }
             }
         }
+        // Color-emoji fallback metrics do not scale exactly like the bundled font.
+        // Exercise both pure emoji and text/emoji runs at width and height limits.
+        let emojiSamples = [String(repeating: "🙂", count: 24), "ON SCREEN 🙂 2026", "A👩‍👩‍👧‍👦A 1️⃣ 🇺🇸"]
+        for text in emojiSamples {
+            for (width, height) in [(1200.0, 360.0), (480.0, 180.0), (1200.0, 100.0)] {
+                let artwork = TimestampArtwork.make(text, width: width, height: height)
+                precondition(artwork.inkBounds.width > 0 && artwork.inkBounds.width <= width + 0.000001)
+                precondition(artwork.inkBounds.height > 0 && artwork.inkBounds.height <= height + 0.000001)
+                precondition(artwork.drawingScale > 0 && artwork.drawingScale <= 1)
+                renderingChecks += 1
+            }
+        }
+        // Render through the actual view: scaled emoji retains color and transparent
+        // padding, and the drawing remains centered rather than scaling its origin.
+        let emojiArtwork = TimestampArtwork.make(emojiSamples[0], width: 1200, height: 360)
+        let imageWidth = Int(ceil(emojiArtwork.inkBounds.width)) + 8
+        let imageHeight = Int(ceil(emojiArtwork.inkBounds.height)) + 8
+        func renderedBounds(width: Int, height: Int) -> (minX: Int, minY: Int, maxX: Int, maxY: Int, hasColor: Bool) {
+            let context = CGContext(data: nil, width: width, height: height,
+                                    bitsPerComponent: 8, bytesPerRow: width * 4,
+                                    space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            let view = TimestampView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+            view.artwork = emojiArtwork
+            let previousContext = NSGraphicsContext.current
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            view.draw(view.bounds)
+            NSGraphicsContext.current = previousContext
+            let pixels = context.data!.assumingMemoryBound(to: UInt8.self)
+            var minX = width, minY = height, maxX = -1, maxY = -1, hasColor = false
+            for y in 0..<height {
+                for x in 0..<width {
+                    let index = y * context.bytesPerRow + x * 4
+                    guard pixels[index + 3] > 0 else { continue }
+                    minX = min(minX, x); minY = min(minY, y)
+                    maxX = max(maxX, x); maxY = max(maxY, y)
+                    hasColor = hasColor || pixels[index] != pixels[index + 1] || pixels[index + 1] != pixels[index + 2]
+                }
+            }
+            return (minX, minY, maxX, maxY, hasColor)
+        }
+        let rendered = renderedBounds(width: imageWidth, height: imageHeight)
+        precondition(rendered.hasColor && rendered.minX >= 2 && rendered.minY >= 2
+                     && rendered.maxX < imageWidth - 2 && rendered.maxY < imageHeight - 2)
+        // Emoji has its own transparent margins. Compare placement in two view
+        // sizes instead of assuming those margins are visually symmetrical.
+        let expanded = renderedBounds(width: imageWidth + 512, height: imageHeight + 512)
+        precondition(expanded.minX == rendered.minX + 256 && expanded.maxX == rendered.maxX + 256)
+        precondition(expanded.minY == rendered.minY + 256 && expanded.maxY == rendered.maxY + 256)
+        renderingChecks += 1
         print("Passed \(checks) date-format checks, \(scheduleChecks) scheduling checks, and \(renderingChecks) font/layout checks.")
     }
 }

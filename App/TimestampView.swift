@@ -4,6 +4,7 @@ import CoreText
 struct TimestampArtwork {
     let line: CTLine
     let inkBounds: CGRect
+    let drawingScale: CGFloat
 
     static func make(_ timestamp: String, width: CGFloat, height: CGFloat) -> TimestampArtwork {
         func line(at size: CGFloat) -> CTLine {
@@ -22,7 +23,15 @@ struct TimestampArtwork {
         let heightScale = referenceBounds.height > 0 ? height / referenceBounds.height : .infinity
         let scale = min(widthScale, heightScale)
         let fitted = line(at: scale.isFinite ? 100 * scale : 100)
-        return TimestampArtwork(line: fitted, inkBounds: CTLineGetBoundsWithOptions(fitted, .useGlyphPathBounds))
+        let fittedBounds = CTLineGetBoundsWithOptions(fitted, .useGlyphPathBounds)
+        // Bitmap emoji metrics can change with font size. Correct the final line
+        // while drawing so another font-size change cannot exceed the fit again.
+        let drawingScale = min(1,
+                               fittedBounds.width > 0 ? width / fittedBounds.width : 1,
+                               fittedBounds.height > 0 ? height / fittedBounds.height : 1)
+        return TimestampArtwork(line: fitted,
+                                inkBounds: fittedBounds.applying(CGAffineTransform(scaleX: drawingScale, y: drawingScale)),
+                                drawingScale: drawingScale)
     }
 }
 
@@ -45,10 +54,10 @@ final class TimestampView: NSView {
         context.setBlendMode(.normal)
         context.setFillColor(textColor.cgColor)
         context.textMatrix = .identity
-        context.textPosition = CGPoint(
-            x: (bounds.width - artwork.inkBounds.width) / 2 - artwork.inkBounds.minX,
-            y: (bounds.height - artwork.inkBounds.height) / 2 - artwork.inkBounds.minY
-        )
+        context.translateBy(x: (bounds.width - artwork.inkBounds.width) / 2 - artwork.inkBounds.minX,
+                            y: (bounds.height - artwork.inkBounds.height) / 2 - artwork.inkBounds.minY)
+        context.scaleBy(x: artwork.drawingScale, y: artwork.drawingScale)
+        context.textPosition = .zero
         CTLineDraw(artwork.line, context)
         context.restoreGState()
     }

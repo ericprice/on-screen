@@ -5,7 +5,10 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 # An explicit empty value retains the interactive Apple ID login option.
 export NOTARY_PROFILE="${NOTARY_PROFILE-on-screen}"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/App/Info.plist")"
-ZIP="$ROOT_DIR/dist/On-Screen-$VERSION.zip"
+[[ $# -le 1 ]] || { echo "usage: $0 [ZIP]" >&2; exit 2; }
+ZIP="${1:-$ROOT_DIR/dist/On-Screen-$VERSION.zip}"
+# Validate this exact archive before contacting Apple, including its release version.
+"$ROOT_DIR/script/verify_zip.sh" "$ZIP" --before-notarization
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
   AUTH=(--keychain-profile "$NOTARY_PROFILE")
 else
@@ -21,6 +24,7 @@ assert result["status"] == "Accepted", result
 print("Apple notarization accepted:", result["id"])
 PYTHON
 STAGING_DIR="$(mktemp -d "$ROOT_DIR/build/notarized-zip.XXXXXX")"
+trap 'rm -rf "$STAGING_DIR"' EXIT
 ditto -x -k "$ZIP" "$STAGING_DIR"
 xcrun stapler staple "$STAGING_DIR/On Screen.app"
 # ZIP files cannot hold a stapled ticket themselves; archive the stapled app.

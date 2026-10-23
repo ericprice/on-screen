@@ -1,0 +1,48 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      # macOS 15's default is Xcode 16; Icon Composer requires Xcode 26.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      POSTHOG_PROJECT_TOKEN: phc_CIOnlyFakePublicToken
+      POSTHOG_HOST: https://example.invalid
+      ON_SCREEN_ANALYTICS_ENVIRONMENT: test
+      ON_SCREEN_ANALYTICS_INTERNAL: "true"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check toolchain
+        run: xcodebuild -version
+      - name: Build and run isolated checks
+        # The native harness requires the hosted macOS GUI session. All analytics
+        # transports are intercepted, and release commands use mocked tools.
+        run: ./script/check_all.sh
+      - name: Preserve diagnostic logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: check-logs
+          path: |
+            build/app-build.log
+            build/analytics-checks/*.log
+            build/analytics-checks/*.txt
+            build/analytics-checks/*.stdout
+            build/analytics-checks/*.stderr
+          if-no-files-found: ignore
+          retention-days: 7

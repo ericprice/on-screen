@@ -16,6 +16,7 @@ EXPECTED_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$ROOT_DIR/App
 [[ "$PUBLIC_KEY" == "$EXPECTED_KEY" ]] || { echo "The Keychain signing key does not match the app's public key." >&2; exit 1; }
 # Keep each release isolated: one full ZIP, optional embedded notes, no deltas.
 STAGING_DIR="$(mktemp -d "$ROOT_DIR/build/appcast.XXXXXX")"
+trap 'rm -rf "$STAGING_DIR"' EXIT
 ditto "$ZIP" "$STAGING_DIR/$(basename "$ZIP")"
 if [[ -n "${RELEASE_NOTES_FILE:-}" ]]; then
   # An HTML fragment is embedded directly, so no additional hosted asset is needed.

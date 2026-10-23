@@ -5,15 +5,24 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 CHECK_DIR="$ROOT_DIR/build/analytics-checks"
 PACKAGES_DIR="$ROOT_DIR/build/SourcePackages"
 mkdir -p "$CHECK_DIR/Sources/AnalyticsChecks"
-if [[ ! -d "$PACKAGES_DIR/checkouts/posthog-ios" || ! -d "$PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ]]; then
-  xcodebuild -resolvePackageDependencies -project "$ROOT_DIR/On Screen.xcodeproj" \
-    -scheme "On Screen" -clonedSourcePackagesDirPath "$PACKAGES_DIR" > "$CHECK_DIR/resolve.log" 2>&1
+# Fail before resolution can switch an existing checkout with local changes.
+python3 "$ROOT_DIR/script/verify_package_pins.py" --check-existing-cleanliness \
+  "$ROOT_DIR/On Screen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved" "$PACKAGES_DIR"
+# Resolve every run: existing directories can belong to another branch or SDK pin.
+if ! xcodebuild -resolvePackageDependencies -project "$ROOT_DIR/On Screen.xcodeproj" \
+    -scheme "On Screen" -clonedSourcePackagesDirPath "$PACKAGES_DIR" \
+    -onlyUsePackageVersionsFromResolvedFile > "$CHECK_DIR/resolve.log" 2>&1; then
+  tail -60 "$CHECK_DIR/resolve.log"
+  exit 1
 fi
+python3 "$ROOT_DIR/script/verify_package_pins.py" \
+  "$ROOT_DIR/On Screen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved" "$PACKAGES_DIR"
 ln -sfn "$PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" "$CHECK_DIR/Sparkle.xcframework"
-for SOURCE in Analytics AnalyticsContext AppRunningDailyReporter PostHogConfiguration DesktopAppDelegate DateDisplayFormat DailyUpdateScheduler TimestampView; do
+for SOURCE in Analytics AnalyticsContext AppRunningDailyReporter PostHogConfiguration DesktopAppDelegate DiagnosticsWriter DateDisplayFormat DateFormatMenuPreviews DailyUpdateScheduler TimestampView; do
   ln -sf "$ROOT_DIR/App/$SOURCE.swift" "$CHECK_DIR/Sources/AnalyticsChecks/$SOURCE.swift"
 done
 ln -sf "$ROOT_DIR/Tests/AnalyticsChecks.swift" "$CHECK_DIR/Sources/AnalyticsChecks/Checks.swift"
+ln -sf "$ROOT_DIR/Tests/PostHogIntegrationChecks.swift" "$CHECK_DIR/Sources/AnalyticsChecks/PostHogIntegrationChecks.swift"
 cat > "$CHECK_DIR/Package.swift" <<'SWIFT'
 // swift-tools-version: 6.0
 import PackageDescription
@@ -67,7 +76,9 @@ cat > "$APP/Contents/Resources/PostHogConfiguration.plist" <<'PLIST'
 </dict></plist>
 PLIST
 codesign --force --deep --sign - "$APP" > "$CHECK_DIR/sign.log" 2>&1
-for MODE in enabled disabled; do
+CHECK_HOME=""
+trap 'if [[ -n "$CHECK_HOME" ]]; then rm -rf "$CHECK_HOME"; fi' EXIT
+for MODE in enabled disabled integration-enabled integration-disabled; do
   REPORT="$CHECK_DIR/$MODE.txt"
   CHECK_HOME="$(mktemp -d "$CHECK_DIR/home-$MODE.XXXXXX")"
   rm -f "$REPORT" "$CHECK_DIR/$MODE.stdout" "$CHECK_DIR/$MODE.stderr"
@@ -75,4 +86,6 @@ for MODE in enabled disabled; do
   [[ -f "$REPORT" ]] || { cat "$CHECK_DIR/$MODE.stderr" >&2; echo "Analytics checks exited without a report" >&2; exit 1; }
   cat "$REPORT"
   [[ "$(head -c 4 "$REPORT")" == PASS ]] || exit 1
+  rm -rf "$CHECK_HOME"
+  CHECK_HOME=""
 done

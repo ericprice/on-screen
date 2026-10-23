@@ -10,6 +10,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     // Start after duplicate-instance detection; Sparkle owns persisted update preferences.
     private lazy var updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
     private let analytics: AppAnalytics
+    private let now: () -> Date
     private lazy var aboutLinkTracker = AboutWebsiteLinkTracker { [weak self] in
         self?.analytics.recordWebsiteClicked()
     }
@@ -24,6 +25,8 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private var window: DesktopWindow?
     private var statusItem: NSStatusItem?
     private var dateFormatMenu: NSMenu?
+    private let dateFormatPreviews = DateFormatMenuPreviews()
+    private weak var highlightedDateFormatItem: NSMenuItem?
     private var timestamp = ""
     private var dateFormat = UserDefaults.standard.string(forKey: "dateFormat").flatMap(DateDisplayFormat.init(rawValue:)) ?? .iso8601
     private var includeTime = UserDefaults.standard.bool(forKey: "includeTime")
@@ -47,7 +50,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         }
     }
     private var customText: String? = UserDefaults.standard.string(forKey: "customText").map { String($0.prefix(customTextLimit)) }
-    private var updatedAt = Date()
+    private var updatedAt: Date
     private var reason = "launch"
     private var colorPersistenceTimer: Timer?
     private var pendingColorAnalytics = false
@@ -61,8 +64,10 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         }
     )
 
-    init(analytics: AppAnalytics = AppAnalytics()) {
+    init(analytics: AppAnalytics = AppAnalytics(), now: @escaping () -> Date = Date.init) {
         self.analytics = analytics
+        self.now = now
+        self.updatedAt = now()
         super.init()
     }
 
@@ -207,7 +212,8 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         dailyUpdateScheduler.cancel()
         runningDailyReporter.stop()
         persistColorChanges()
-        PostHogConfiguration.flush()
+        _ = PostHogConfiguration.flushForTermination()
+        DiagnosticsWriter.flush()
     }
 
     private func registerAtLogin() {
@@ -235,7 +241,12 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
         guard menu === dateFormatMenu else { return }
-        updateDateFormatMenu(highlightedItem: item)
+        updateDateFormatHighlight(item)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu === dateFormatMenu else { return }
+        updateDateFormatHighlight(nil)
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -303,15 +314,11 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         return .failed
     }
 
-    private func updateDateFormatMenu(highlightedItem: NSMenuItem? = nil) {
+    private func updateDateFormatMenu() {
+        dateFormatPreviews.update(date: updatedAt, includeTime: includeTime)
         for item in dateFormatMenu?.items ?? [] {
             if let value = item.representedObject as? String, let format = DateDisplayFormat(rawValue: value) {
-                let preview = format.string(from: updatedAt, includeTime: includeTime)
-                let title = NSMutableAttributedString(string: format.title)
-                title.append(NSAttributedString(string: " — \(preview)", attributes: [
-                    .foregroundColor: item === highlightedItem ? NSColor.selectedMenuItemTextColor : NSColor.secondaryLabelColor
-                ]))
-                item.attributedTitle = title
+                item.attributedTitle = dateFormatPreviews.title(for: format, highlighted: item === highlightedDateFormatItem)
                 item.state = customText == nil && dateFormat == format ? .on : .off
             } else if item.action == #selector(toggleIncludeTime) {
                 item.state = includeTime || dateFormat.alwaysIncludesTime ? .on : .off
@@ -319,6 +326,16 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             } else if item.action == #selector(toggleRandomizeFormat) {
                 item.state = randomizeFormat ? .on : .off
             }
+        }
+    }
+
+    private func updateDateFormatHighlight(_ item: NSMenuItem?) {
+        guard item !== highlightedDateFormatItem else { return }
+        let previous = highlightedDateFormatItem
+        highlightedDateFormatItem = item
+        for changed in [previous, item].compactMap({ $0 }) {
+            guard let value = changed.representedObject as? String, let format = DateDisplayFormat(rawValue: value) else { continue }
+            changed.attributedTitle = dateFormatPreviews.title(for: format, highlighted: changed === item)
         }
     }
 
@@ -350,7 +367,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         updateDaily.toggle()
         UserDefaults.standard.set(updateDaily, forKey: "updateDaily")
         sender.state = updateDaily ? .on : .off
-        dailyUpdateScheduler.schedule(enabled: updateDaily)
+        dailyUpdateScheduler.schedule(enabled: updateDaily, now: now())
         positionArtwork()
         analytics.recordDisplaySettingChanged(.updateDaily, previous: previous, display: analyticsDisplayState)
     }
@@ -446,7 +463,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
 
     private func refreshTimestamp(reason: AppAnalytics.RefreshReason, allowRandomization: Bool = true) {
         let previousFormat = dateFormat
-        updatedAt = Date()
+        updatedAt = now()
         if randomizeFormat && allowRandomization {
             dateFormat = dateFormat.randomAlternative()
             UserDefaults.standard.set(dateFormat.rawValue, forKey: "dateFormat")
@@ -518,9 +535,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             "loginItemStatus": SMAppService.mainApp.status.rawValue
         ]
         do {
-            let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("On Screen")
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("state.json"), options: .atomic)
+            DiagnosticsWriter.write(try JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]))
         } catch {
             logger.error("Could not write diagnostics: \(error.localizedDescription, privacy: .public)")
         }
@@ -631,9 +646,13 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     }
 
     private func clearCustomText() {
+        // A paused timestamp may predate midnight. Resume with the current date,
+        // keeping manual format choices and the randomization preference intact.
+        let resumedAt = now()
+        if customText != nil { updatedAt = resumedAt }
         customText = nil
         UserDefaults.standard.removeObject(forKey: "customText")
-        dailyUpdateScheduler.schedule(enabled: updateDaily)
+        dailyUpdateScheduler.schedule(enabled: updateDaily, now: resumedAt)
     }
 
     @objc private func resetTimestamp() {

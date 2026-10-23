@@ -67,7 +67,12 @@ enum AnalyticsChecks {
         let report = URL(fileURLWithPath: CommandLine.arguments.last!)
         Task { @MainActor in
             do {
-                let result = try await run()
+                let result: String
+                if CommandLine.arguments.contains("--integration-enabled") || CommandLine.arguments.contains("--integration-disabled") {
+                    result = try await PostHogIntegrationChecks.run(startDisabled: CommandLine.arguments.contains("--integration-disabled"))
+                } else {
+                    result = try await run()
+                }
                 try result.write(to: report, atomically: true, encoding: .utf8)
             } catch {
                 try? "FAIL: \(error)\n".write(to: report, atomically: true, encoding: .utf8)
@@ -110,6 +115,7 @@ enum AnalyticsChecks {
         try checkContext()
         try check(AnalyticsContext.current.environment == "test" && AnalyticsContext.current.isInternal,
                   "Harness must bundle test/internal provenance before either SDK starts")
+        try await checkDelegateRegressions(defaults: defaults)
         let session = URLSessionConfiguration.ephemeral
         session.protocolClasses = [AnalyticsCaptureProtocol.self]
         let postHogToken = "phc_on_screen_analytics_checks_" + UUID().uuidString
@@ -615,6 +621,141 @@ enum AnalyticsChecks {
                   "Runtime environment cleared bundled internal provenance")
         let test = context(production, ["ON_SCREEN_ANALYTICS_TEST_MODE": "1"])
         try check(test.environment == "test" && test.isInternal, "Test mode did not mark traffic as test/internal")
+    }
+
+    @MainActor
+    static func checkDelegateRegressions(defaults: UserDefaults) async throws {
+        let domain = Bundle.main.bundleIdentifier!
+        let saved = defaults.persistentDomain(forName: domain) ?? [:]
+        defer { defaults.setPersistentDomain(saved, forName: domain) }
+        // These checks exercise the real selectors with an injected clock and a
+        // local capture closure. They never initialize an SDK or register login items.
+        defaults.set(true, forKey: "shareUsageStatistics")
+        let parser = ISO8601DateFormatter()
+        let beforeMidnight = parser.date(from: "2030-06-20T12:00:00Z")!
+        let afterMidnight = beforeMidnight.addingTimeInterval(2 * 86_400)
+        func value<T>(_ name: String, in delegate: DesktopAppDelegate, as type: T.Type) -> T? {
+            Mirror(reflecting: delegate).children.first { $0.label == name }?.value as? T
+        }
+        for selector in ["selectDateFormat:", "toggleIncludeTime"] {
+            defaults.set(DateDisplayFormat.iso8601.rawValue, forKey: "dateFormat")
+            defaults.set(false, forKey: "includeTime")
+            defaults.set(true, forKey: "updateDaily")
+            defaults.set(true, forKey: "randomizeFormat")
+            defaults.set("CUSTOM", forKey: "customText")
+            var clock = beforeMidnight
+            let analytics = AppAnalytics(defaults: defaults, postHogCapture: { _, _ in })
+            let delegate = DesktopAppDelegate(analytics: analytics, now: { clock })
+            defer { delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification)) }
+            clock = afterMidnight
+            let selectedFormat: DateDisplayFormat = selector == "selectDateFormat:" ? .kawara : .iso8601
+            let item = NSMenuItem()
+            item.representedObject = selectedFormat.rawValue
+            delegate.perform(NSSelectorFromString(selector), with: item)
+            let expected = selectedFormat.string(from: afterMidnight, includeTime: selector == "toggleIncludeTime")
+            try check(value("timestamp", in: delegate, as: String.self) == expected,
+                      "Leaving custom text through \(selector) restored a stale date")
+            try check(defaults.string(forKey: "customText") == nil && defaults.bool(forKey: "randomizeFormat"),
+                      "Leaving custom text changed the randomization preference")
+            try check(defaults.string(forKey: "dateFormat") == selectedFormat.rawValue,
+                      "Leaving custom text randomized away the selected format")
+            let scheduler = value("dailyUpdateScheduler", in: delegate, as: DailyUpdateScheduler.self)
+                ?? Mirror(reflecting: delegate).children.compactMap { $0.value as? DailyUpdateScheduler }.first
+            try check(scheduler?.timer?.fireDate == DailyUpdateScheduler.nextMidnight(after: afterMidnight),
+                      "Leaving custom text did not resume the next daily boundary")
+            // Format-only changes keep an existing timestamp snapshot. Reset must
+            // update the date without changing that manually selected format.
+            clock = afterMidnight.addingTimeInterval(86_400)
+            delegate.perform(NSSelectorFromString("selectDateFormat:"), with: item)
+            try check(value("timestamp", in: delegate, as: String.self) == expected,
+                      "Ordinary format selection refreshed the captured timestamp")
+            delegate.perform(NSSelectorFromString("resetTimestamp"))
+            try check(value("updatedAt", in: delegate, as: Date.self) == clock &&
+                      defaults.string(forKey: "dateFormat") == selectedFormat.rawValue,
+                      "Reset did not preserve the current format while refreshing")
+        }
+
+        // A resume immediately before midnight must schedule that boundary, even
+        // if a later clock read would already be on the next day.
+        do {
+            defaults.set("CUSTOM", forKey: "customText")
+            let boundary = DailyUpdateScheduler.nextMidnight(after: beforeMidnight)!
+            var clockReads = 0
+            let delegate = DesktopAppDelegate(analytics: AppAnalytics(defaults: defaults, postHogCapture: { _, _ in }), now: {
+                defer { clockReads += 1 }
+                if clockReads == 0 { return beforeMidnight }
+                return boundary.addingTimeInterval(clockReads == 1 ? -0.001 : 0.001)
+            })
+            defer { delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification)) }
+            let item = NSMenuItem()
+            item.representedObject = DateDisplayFormat.iso8601.rawValue
+            delegate.perform(NSSelectorFromString("selectDateFormat:"), with: item)
+            let scheduler = Mirror(reflecting: delegate).children.compactMap { $0.value as? DailyUpdateScheduler }.first
+            try check(scheduler?.timer?.fireDate == boundary && clockReads == 2,
+                      "Custom-text resume read the clock twice and skipped midnight")
+        }
+
+        let previews = DateFormatMenuPreviews()
+        let utc = TimeZone(secondsFromGMT: 0)!
+        try check(previews.update(date: beforeMidnight, includeTime: false, timeZone: utc), "Initial preview cache missing")
+        let normal = previews.title(for: .iso8601, highlighted: false)!
+        let highlighted = previews.title(for: .iso8601, highlighted: true)!
+        try check(!previews.update(date: beforeMidnight, includeTime: false, timeZone: utc) &&
+                  previews.title(for: .iso8601, highlighted: false) === normal,
+                  "Unchanged preview inputs rebuilt the titles")
+        try check(normal.string == highlighted.string && normal.attribute(.foregroundColor, at: 0, effectiveRange: nil) == nil,
+                  "Preview highlighting changed the copy or primary label style")
+        try check(normal.attribute(.foregroundColor, at: normal.length - 1, effectiveRange: nil) as? NSColor == .secondaryLabelColor &&
+                  highlighted.attribute(.foregroundColor, at: highlighted.length - 1, effectiveRange: nil) as? NSColor == .selectedMenuItemTextColor,
+                  "Preview suffix colors changed")
+        try check(previews.update(date: beforeMidnight, includeTime: true, timeZone: utc), "Include Time did not invalidate previews")
+        try check(previews.update(date: afterMidnight, includeTime: true, timeZone: utc), "Date did not invalidate previews")
+        try check(previews.update(date: afterMidnight, includeTime: true, timeZone: TimeZone(secondsFromGMT: 3600)!),
+                  "Time zone did not invalidate previews")
+
+        defaults.set(0, forKey: "textColorMode")
+        defaults.set([1.0, 1.0, 1.0], forKey: "customColor")
+        var colors: [[String: String]] = []
+        let analytics = AppAnalytics(defaults: defaults, postHogCapture: { event, properties in
+            if event == "text_color_changed" { colors.append(properties) }
+        })
+        let delegate = DesktopAppDelegate(analytics: analytics)
+        let custom = NSMenuItem()
+        custom.tag = 2
+        delegate.perform(NSSelectorFromString("selectTextColor:"), with: custom)
+        let panel = NSColorPanel.shared
+        defer {
+            panel.setTarget(nil)
+            panel.setAction(nil)
+            panel.orderOut(nil)
+        }
+        for color in [NSColor.red, .green, NSColor(srgbRed: 1, green: 0.5, blue: 0, alpha: 1)] {
+            panel.color = color
+            delegate.perform(NSSelectorFromString("customColorChanged:"), with: panel)
+        }
+        try check(colors.isEmpty, "Color drag emitted before the debounce interval")
+        try await Task.sleep(for: .milliseconds(400))
+        try check(colors.count == 1 && colors.last?["color"] == "#FF8000",
+                  "Color drag did not emit exactly its final value")
+        try check(defaults.array(forKey: "customColor") as? [Double] == [1, 0.5, 0], "Debounced color was not persisted")
+        delegate.perform(NSSelectorFromString("customColorChanged:"), with: panel)
+        try await Task.sleep(for: .milliseconds(350))
+        try check(colors.count == 1, "Unchanged color emitted a duplicate event")
+        panel.color = NSColor(srgbRed: 0, green: 0.25, blue: 1, alpha: 1)
+        delegate.perform(NSSelectorFromString("customColorChanged:"), with: panel)
+        delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        try check(colors.count == 2 && colors.last?["color"] == "#0040FF" &&
+                  defaults.array(forKey: "customColor") as? [Double] == [0, 0.25, 1],
+                  "Termination lost a pending color change")
+
+        let first = Data("{\"sequence\":1}".utf8)
+        let last = Data("{\"sequence\":2}".utf8)
+        DiagnosticsWriter.write(first)
+        DiagnosticsWriter.write(last)
+        try check(DiagnosticsWriter.flush(), "Diagnostics queue failed to drain")
+        let path = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("On Screen/state.json")
+        try check(try Data(contentsOf: path) == last, "Diagnostics persistence lost FIFO order")
     }
 
     static func events(_ selector: String) -> [[String: Any]] {
