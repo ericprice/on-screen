@@ -110,7 +110,7 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 2)
         window.contentView = TimestampView()
         self.window = window
 
@@ -130,12 +130,12 @@ final class DesktopAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
         about.target = self
         menu.addItem(about)
         menu.addItem(.separator())
-        let openAtLogin = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin(_:)), keyEquivalent: "")
-        openAtLogin.target = self
-        menu.addItem(openAtLogin)
         let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         checkForUpdates.target = self
         menu.addItem(checkForUpdates)
+        let openAtLogin = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin(_:)), keyEquivalent: "")
+        openAtLogin.target = self
+        menu.addItem(openAtLogin)
         menu.addItem(.separator())
         let formats = NSMenu(title: "Date Format")
         formats.delegate = self
